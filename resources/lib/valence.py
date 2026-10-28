@@ -104,7 +104,7 @@ class ValenceAPI:
         return self.get('/libraries')
 
     def get_library_items(self, library_id, params=None):
-        """Get items from a library"""
+        """Get items from a library (movies or episodes)"""
         default_params = {'limit': 100}
         if params:
             default_params.update(params)
@@ -118,12 +118,17 @@ class ValenceAPI:
         return self.get('/libraries/{}/shows'.format(library_id), params=default_params)
 
     def get_media(self, media_id):
-        """Get media details"""
+        """Get media details (works for movies, episodes, not for series)"""
         return self.get('/media/{}'.format(media_id))
 
     def get_media_artwork(self, media_id, kind='poster'):
-        """Get media artwork URL"""
-        return '{}/api/media/{}/artwork/{}'.format(self.server.rstrip('/'), media_id, kind)
+        """
+        Get media artwork URL.
+        Note: Valence doesn't have /media/{id}/artwork endpoint on all versions.
+        Use posterUrl/backdropUrl from item data directly.
+        """
+        # Return empty - artwork URLs come from item data (posterUrl, backdropUrl)
+        return ""
 
     def get_profiles(self):
         """Get available profiles"""
@@ -197,7 +202,7 @@ class ValenceAPI:
 
     # Playback methods
     def start_playback_session(self, media_id, device_profile):
-        """Start a playback session"""
+        """Start a playback session - returns session with HLS manifest URL"""
         payload = {
             'mediaId': media_id,
             'deviceProfile': device_profile
@@ -205,7 +210,7 @@ class ValenceAPI:
         return self.post('/playback/{}/session'.format(media_id), json_data=payload)
 
     def get_playback_file(self, media_id, params=None):
-        """Get direct playback file URL"""
+        """Get direct playback file URL (not used - session gives HLS manifest)"""
         return self.get('/playback/{}/file'.format(media_id), params=params)
 
     def get_playback_explain(self, media_id):

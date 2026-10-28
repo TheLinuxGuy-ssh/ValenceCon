@@ -868,7 +868,7 @@ def audio_subs_pref(url, list_item, media_source, item_id, audio_stream_index, s
             subtitle_streams.append(track)
 
     # set audio index
-    if select_audio_index is not not None:
+    if select_audio_index is not None:
         playurlprefs += "&AudioStreamIndex=%s" % select_audio_index
 
     elif len(audio_streams) > 1:
@@ -1207,46 +1207,64 @@ def get_item_playback_info(item_id, force_transcode=False):
         "maxHeight": int(settings.getSetting("playback_max_width")) * 9 // 16,
         "maxAudioChannels": int(settings.getSetting("audio_max_channels")),
         "supportedVideoRanges": ["SDR", "HDR10", "DolbyVision"],
-        "directPlayProfiles": [],
-        "transcodingProfiles": []
+        "supportedSubtitleFormats": ["srt", "webvtt", "ass", "vobsub", "pgs"],
+        "directPlayProfiles": [
+            {
+                "container": "mkv",
+                "videoCodecs": ["hevc", "h264", "av1", "mpeg2", "vc1"],
+                "audioCodecs": ["aac", "ac3", "eac3", "dts", "truehd", "flac", "opus", "mp3"]
+            },
+            {
+                "container": "mp4",
+                "videoCodecs": ["hevc", "h264", "av1", "mpeg2"],
+                "audioCodecs": ["aac", "ac3", "eac3", "mp3"]
+            }
+        ],
+        "transcodingProfiles": [
+            {
+                "protocol": "hls",
+                "container": "ts",
+                "videoCodec": "h264",
+                "videoProfile": "high",
+                "audioCodec": "aac",
+                "audioProfile": "lc",
+                "audioChannels": 6
+            }
+        ]
     }
     
     if settings.getSetting("playback_video_force_8") == "true":
         device_profile["maxVideoBitDepth"] = 8
 
-    # Add video codec profiles based on settings
-    if settings.getSetting("force_transcode_h265") == "true":
-        pass  # Force transcode handled by not including in directPlayProfiles
-    
     # Start playback session
     session = api.start_playback_session(item_id, device_profile)
     
     if not session:
         return None
     
-    # Convert Valence session response to Jellyfin-like format for compatibility
+    # Convert Valence session response to compatible format
+    # Valence returns: delivery.manifestUrl (HLS), mode (DirectPlay/Transcode/Remux)
     media_sources = []
-    if session.get("directPlayUrl"):
+    
+    delivery = session.get("delivery", {})
+    manifest_url = delivery.get("manifestUrl")
+    mode = session.get("mode", "Transcode")
+    plan = session.get("plan", {})
+    
+    if manifest_url:
+        # Build full URL
+        base_url = settings.getSetting('server_address').rstrip('/')
+        full_manifest_url = base_url + manifest_url
+        
         media_sources.append({
             "Id": item_id,
-            "Name": "Direct Play",
-            "Path": session.get("directPlayUrl"),
-            "Container": "mp4",
-            "SupportsDirectPlay": True,
-            "SupportsDirectStream": True,
-            "SupportsTranscoding": True,
+            "Name": "HLS Stream",
+            "Path": full_manifest_url,
+            "Container": "hls",
+            "SupportsDirectPlay": mode == "DirectPlay",
+            "SupportsDirectStream": mode == "DirectStream",
+            "SupportsTranscoding": mode == "Transcode",
             "MediaStreams": [],  # Would need to fetch from media details
-        })
-    if session.get("transcodeUrl"):
-        media_sources.append({
-            "Id": item_id + "_transcode",
-            "Name": "Transcode",
-            "Path": session.get("transcodeUrl"),
-            "Container": "ts",
-            "SupportsDirectPlay": False,
-            "SupportsDirectStream": False,
-            "SupportsTranscoding": True,
-            "MediaStreams": [],
         })
     
     return {
@@ -1259,76 +1277,23 @@ def get_item_playback_info(item_id, force_transcode=False):
 def get_play_url(media_source, play_session_id, channel_id=None):
     log.debug("get_play_url - media_source: {0}", media_source)
 
-    server = settings.getSetting('server_address')
-    allow_direct_file_play = settings.getSetting('allow_direct_file_play') == 'true'
-
-    can_direct_play = media_source.get("SupportsDirectPlay", False)
-    can_direct_stream = media_source.get("SupportsDirectStream", False)
-    can_transcode = media_source.get("SupportsTranscoding", False)
-
-    playurl = None
+    # Valence uses HLS manifest URL from session
+    playurl = media_source.get("Path")
     playback_type = None
 
-    # check if file can be directly played
-    if allow_direct_file_play and can_direct_play:
-        direct_path = media_source.get("Path")
-        if direct_path:
-            direct_path = direct_path.replace("\\", "/").strip()
+    # Determine playback type from media source
+    supports_direct_play = media_source.get("SupportsDirectPlay", False)
+    supports_direct_stream = media_source.get("SupportsDirectStream", False)
+    supports_transcode = media_source.get("SupportsTranscoding", False)
 
-            container = media_source.get("Container")
-            if container == "dvd":
-                direct_path = direct_path + "/VIDEO_TS/VIDEO_TS.IFO"
-            elif container == "bluray":
-                direct_path = direct_path + "/BDMV/index.bdmv"
-
-            if direct_path.startswith("//"):
-                direct_path = "smb://" + direct_path[2:]
-
-            log.debug("playback_direct_path: {0}".format(direct_path))
-
-            if xbmcvfs.exists(direct_path):
-                playurl = direct_path
-                playback_type = "0"
-
-    # check if file can be direct streamed/played
-    if (can_direct_stream or can_direct_play) and playurl is None:
-        item_id = media_source.get('Id')
-        if channel_id:
-            # live tv has to be transcoded by the server
-            playurl = None
-        else:
-            # Use Valence direct play endpoint
-            playurl = api.get_playback_file(item_id)
-            if playurl:
-                playback_type = "1"
-
-    # check is file can be transcoded
-    if can_transcode and playurl is None:
-        item_id = media_source.get('Id')
-        device_id = get_device_id()
-
-        user_details = load_user_details()
-        user_token = user_details.get('token')
-        bitrate = get_bitrate(settings.getSetting("force_max_stream_bitrate"))
-        playback_max_width = settings.getSetting("playback_max_width")
-        audio_codec = settings.getSetting("audio_codec")
-        audio_playback_bitrate = settings.getSetting("audio_playback_bitrate")
-        audio_bitrate = int(audio_playback_bitrate) * 1000
-        audio_max_channels = settings.getSetting("audio_max_channels")
-        playback_video_force_8 = settings.getSetting("playback_video_force_8") == "true"
-
-        # For Valence, transcode URL comes from playback session
-        session = api.start_playback_session(item_id, {
-            "schemaVersion": 1,
-            "id": device_id,
-            "name": "Kodi ValenceCon",
-            "maxWidth": int(playback_max_width),
-            "maxAudioChannels": int(audio_max_channels),
-        })
-        
-        if session and session.get("transcodeUrl"):
-            playurl = session.get("transcodeUrl")
-            playback_type = "2"
+    if supports_direct_play:
+        playback_type = "0"
+    elif supports_direct_stream:
+        playback_type = "1"
+    elif supports_transcode:
+        playback_type = "2"
+    else:
+        playback_type = "2"  # Default to transcode
 
     return playurl, playback_type, []
 
