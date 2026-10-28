@@ -74,23 +74,51 @@ def zip_files(py_version: str, source: str, target: str, dev: bool) -> None:
 
     with zipfile.ZipFile(f'{target}/{archive_name}', 'w') as z:
         for root, dirs, files in os.walk(args.source):
-            for filename in filter(file_filter, files):
-                file_path = os.path.join(root, filename)
-                if dev or folder_filter(file_path):
-                    relative_path = os.path.join(ADDON_ID, os.path.relpath(file_path, source))
-                    z.write(file_path, relative_path)
+            # Filter directories in-place to avoid walking excluded folders
+            dirs[:] = [d for d in dirs if folder_filter(d)]
+            for filename in files:
+                if file_filter(filename):
+                    file_path = os.path.join(root, filename)
+                    if dev or folder_filter(file_path):
+                        relative_path = os.path.join(ADDON_ID, os.path.relpath(file_path, source))
+                        z.write(file_path, relative_path)
 
 
 def file_filter(file_name: str) -> bool:
     """
-    True if file_name is meant to be included
+    True if file_name is meant to be included in the addon zip
     """
-    return (
-        not (file_name.startswith(ADDON_ID) and file_name.endswith('.zip'))
-        and not file_name.endswith('.pyo')
-        and not file_name.endswith('.pyc')
-        and not file_name.endswith('.pyd')
-    )
+    # Exclude development/test files
+    excluded_patterns = [
+        'test_',
+        '_test',
+        '.test.',
+        'test_results',
+        '.pyc',
+        '.pyo',
+        '.pyd',
+        '.zip',
+        '.env',
+        '.gitignore',
+        'build.py',
+        'tox.ini',
+        'requirements-dev.txt',
+        'release.yaml',
+    ]
+    
+    for pattern in excluded_patterns:
+        if pattern in file_name:
+            return False
+    
+    # Exclude compiled Python files
+    if file_name.endswith(('.pyc', '.pyo', '.pyd')):
+        return False
+    
+    # Exclude previous zip files
+    if file_name.startswith(ADDON_ID) and file_name.endswith('.zip'):
+        return False
+    
+    return True
 
 
 def folder_filter(folder_name: str) -> bool:
@@ -106,6 +134,8 @@ def folder_filter(folder_name: str) -> bool:
         '.pytest_cache',
         '__pycache__',
         'venv',
+        '.idea',
+        '.vscode',
     ]
     for f in filters:
         if f in folder_name.split(os.path.sep):
