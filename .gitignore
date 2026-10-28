@@ -229,3 +229,6 @@ addon.xml
 # Environment files
 .env
 .env.*
+
+# Test results
+test_results*.json
