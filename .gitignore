@@ -225,3 +225,7 @@ venv
 
 # Addon files
 addon.xml
+
+# Environment files
+.env
+.env.*

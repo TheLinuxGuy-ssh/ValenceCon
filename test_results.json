@@ -1,0 +1,155 @@
+{
+  "base_url": "https://entertainment.linuxguy.tech",
+  "api_url": "https://entertainment.linuxguy.tech/api/",
+  "summary": {
+    "total": 16,
+    "passed": 13,
+    "failed": 3
+  },
+  "results": [
+    {
+      "name": "About",
+      "method": "GET",
+      "path": "/about",
+      "success": true,
+      "message": "HTTP 200",
+      "content_type": "application/json",
+      "response_size": 121
+    },
+    {
+      "name": "Health Check",
+      "method": "GET",
+      "path": "/health",
+      "success": true,
+      "message": "HTTP 200",
+      "content_type": "application/json",
+      "response_size": 60
+    },
+    {
+      "name": "List Libraries",
+      "method": "GET",
+      "path": "/libraries",
+      "success": true,
+      "message": "HTTP 200",
+      "content_type": "application/json",
+      "response_size": 2445
+    },
+    {
+      "name": "List Profiles",
+      "method": "GET",
+      "path": "/profiles",
+      "success": true,
+      "message": "HTTP 200",
+      "content_type": "application/json",
+      "response_size": 667
+    },
+    {
+      "name": "Library Facets",
+      "method": "GET",
+      "path": "/library-facets",
+      "success": true,
+      "message": "HTTP 200",
+      "content_type": "application/json",
+      "response_size": 454
+    },
+    {
+      "name": "Up Next",
+      "method": "GET",
+      "path": "/up-next",
+      "success": true,
+      "message": "HTTP 200",
+      "content_type": "application/json",
+      "response_size": 15
+    },
+    {
+      "name": "Progress",
+      "method": "GET",
+      "path": "/progress",
+      "success": true,
+      "message": "HTTP 200",
+      "content_type": "application/json",
+      "response_size": 1156
+    },
+    {
+      "name": "Catalogue Search",
+      "method": "GET",
+      "path": "/admin/catalogue/search",
+      "success": false,
+      "message": "HTTP 400",
+      "content_type": "application/json",
+      "response_size": 475
+    },
+    {
+      "name": "Live Sources",
+      "method": "GET",
+      "path": "/live/sources",
+      "success": true,
+      "message": "HTTP 200",
+      "content_type": "application/json",
+      "response_size": 14
+    },
+    {
+      "name": "Live Channels",
+      "method": "GET",
+      "path": "/live/channels",
+      "success": false,
+      "message": "HTTP 404",
+      "content_type": "application/json",
+      "response_size": 176
+    },
+    {
+      "name": "Live Guide",
+      "method": "GET",
+      "path": "/live/guide",
+      "success": true,
+      "message": "HTTP 200",
+      "content_type": "application/json",
+      "response_size": 48
+    },
+    {
+      "name": "Music Albums",
+      "method": "GET",
+      "path": "/music/albums",
+      "success": true,
+      "message": "HTTP 200",
+      "content_type": "application/json",
+      "response_size": 397
+    },
+    {
+      "name": "Music Artists",
+      "method": "GET",
+      "path": "/music/artists",
+      "success": true,
+      "message": "HTTP 200",
+      "content_type": "application/json",
+      "response_size": 212
+    },
+    {
+      "name": "Music Genres",
+      "method": "GET",
+      "path": "/music/genres",
+      "success": false,
+      "message": "HTTP 404",
+      "content_type": "application/json",
+      "response_size": 176
+    },
+    {
+      "name": "Books",
+      "method": "GET",
+      "path": "/books",
+      "success": true,
+      "message": "HTTP 200",
+      "content_type": "application/json",
+      "response_size": 12
+    },
+    {
+      "name": "Collections",
+      "method": "GET",
+      "path": "/collections",
+      "success": true,
+      "message": "HTTP 200",
+      "content_type": "application/json",
+      "response_size": 18
+    }
+  ]
+}

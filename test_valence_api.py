@@ -7,8 +7,22 @@ NO destructive actions - safe for production testing.
 
 import sys
 import json
+import os
 import requests
 from urllib.parse import urljoin
+
+# Load .env file if present
+def load_env():
+    env_path = os.path.join(os.path.dirname(__file__), '.env')
+    if os.path.exists(env_path):
+        with open(env_path) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    key, value = line.split('=', 1)
+                    os.environ[key] = value
+
+load_env()
 
 class ValenceTestHarness:
     def __init__(self, base_url, api_key=None):
@@ -20,7 +34,8 @@ class ValenceTestHarness:
             'Accept': 'application/json',
         })
         if api_key:
-            self.session.headers['Authorization'] = f'Bearer {api_key}'
+            # Valence uses X-Api-Key header, not Bearer token
+            self.session.headers['X-Api-Key'] = api_key
         
         self.results = []
     
@@ -160,12 +175,16 @@ class ValenceTestHarness:
 def main():
     import argparse
     parser = argparse.ArgumentParser(description='Valence API Safety Test Harness')
-    parser.add_argument('url', help='Valence server URL (e.g., http://localhost:8420)')
-    parser.add_argument('--api-key', help='API key for authentication (optional)')
+    parser.add_argument('url', nargs='?', default=os.environ.get('VALENCE_URL'), help='Valence server URL (e.g., http://localhost:8420) or set VALENCE_URL in .env')
+    parser.add_argument('--api-key', default=os.environ.get('VALENCE_API'), help='API key for authentication (optional) or set VALENCE_API in .env')
     parser.add_argument('--library', help='Test specific library ID')
     parser.add_argument('--media', help='Test specific media ID')
     parser.add_argument('--output', help='Export results to JSON file')
     args = parser.parse_args()
+    
+    if not args.url:
+        print("❌ Error: VALENCE_URL not set. Provide as argument or set in .env")
+        sys.exit(1)
     
     print("⚠️  SAFETY NOTICE: This harness ONLY performs READ operations (GET/HEAD)")
     print("   No POST/PUT/DELETE requests will be made.")
