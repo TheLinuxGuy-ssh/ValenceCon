@@ -25,9 +25,6 @@ def indent(elem: ET.Element, level: int = 0) -> None:
             indent(elem, level + 1)
         if not elem.tail or not elem.tail.strip():
             elem.tail = i
-    else:
-        if level and (not elem.tail or not elem.tail.strip()):
-            elem.tail = i
 
 
 ADDON_ID = "plugin.video.valencecon"
@@ -104,6 +101,7 @@ def file_filter(file_name: str) -> bool:
         'tox.ini',
         'requirements-dev.txt',
         'release.yaml',
+        'jellyfin.py',  # Old Jellyfin API client - replaced by valence.py
     ]
     
     for pattern in excluded_patterns:
