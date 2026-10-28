@@ -177,30 +177,22 @@ msgid "Services"
 msgstr "Services"
 
 msgctxt "#30103"
-msgid "Views"
-msgstr "Views"
-
-msgctxt "#30104"
-msgid "Sort Methods"
-msgstr "Sort Methods"
-
-msgctxt "#30105"
 msgid "Detect Valence Server"
 msgstr "Detect Valence Server"
 
-msgctxt "#30106"
+msgctxt "#30104"
 msgid "Change Profile"
 msgstr "Change Profile"
 
-msgctxt "#30107"
+msgctxt "#30105"
 msgid "Server URL"
 msgstr "Server URL"
 
-msgctxt "#30108"
+msgctxt "#30106"
 msgid "Current Profile"
 msgstr "Current Profile"
 
-msgctxt "#30109"
+msgctxt "#30107"
 msgid "Save Credentials"
 msgstr "Save Credentials"
 
@@ -1167,6 +1159,10 @@ msgstr "Audio max channels"
 msgctxt "#30421"
 msgid "Views"
 msgstr "Views"
+
+msgctxt "#30422"
+msgid "Sorting"
+msgstr "Sort Methods"
 
 msgctxt "#30422"
 msgid "Sorting"

@@ -20,8 +20,9 @@
     <summary lang="en_GB">Browse and play your Valence server media library.</summary>
     <description lang="en_GB">An addon to allow you to browse and playback your Valence (https://getvalence.app) Movie, TV Show, Music, Book and Live TV collections.</description>
     <assets>
-        <icon>icon.png</icon>
-        <fanart>fanart.jpg</fanart>
+        <icon>resources/icon.png</icon>
+        <fanart>resources/fanart.jpg</fanart>
     </assets>
+    <reuselanguageinvoker>true</reuselanguageinvoker>
   </extension>
 </addon>
