@@ -46,24 +46,25 @@ def kodi_version():
     return int(version_string.split(' ', 1)[0].split('.', 1)[0])
 
 
-def get_jellyfin_url(path, params):
+def get_valence_url(path, params):
+    """Build a Valence API URL with query parameters"""
     params["format"] = "json"
     url_params = urlencode(params)
     return '{}?{}'.format(path, url_params)
 
 
 def get_checksum(item):
-    userdata = item['UserData']
+    """Generate checksum for cache validation"""
+    userdata = item.get('UserData', {})
     checksum = "{}_{}_{}_{}_{}_{}_{}".format(
-        item['Etag'],
-        userdata['Played'],
-        userdata['IsFavorite'],
+        item.get('Etag', ''),
+        userdata.get('Played', False),
+        userdata.get('IsFavorite', False),
         userdata.get('Likes', "-"),
-        userdata['PlaybackPositionTicks'],
+        userdata.get('PlaybackPositionTicks', 0),
         userdata.get('UnplayedItemCount', "-"),
         userdata.get("PlayedPercentage", "-")
     )
-
     return checksum
 
 
@@ -92,7 +93,7 @@ def send_event_notification(method, data=None, hexlify=False):
     else:
         data = '"[{}]"'.format(data_str.replace('"', '\\"'))
 
-    sender = 'plugin.video.jellycon'
+    sender = 'plugin.video.valencecon'
 
     xbmc.executebuiltin('NotifyAll({}, {}, {})'.format(sender, method, data))
 
@@ -154,34 +155,34 @@ def translate_string(string_id):
 def get_device_id():
 
     window = HomeWindow()
-    username = window.get_property('user_name')
+    username = window.get_property('profile_name')
     client_id = window.get_property("client_id")
     hashed_name = hashlib.md5(username.encode()).hexdigest()
 
     if client_id and username:
         return '{}-{}'.format(client_id, hashed_name)
     elif client_id and not username:
-        # Quick Connect, needs to be unique so sessions don't overwrite
+        # No profile selected yet
         rand_id = uuid4().hex
         return '{}-{}'.format(client_id, rand_id)
 
-    jellyfin_guid_path = py2_decode(
-        translate_path("special://temp/jellycon_guid")
+    valence_guid_path = py2_decode(
+        translate_path("special://temp/valencecon_guid")
     )
-    log.debug("jellyfin_guid_path: {0}".format(jellyfin_guid_path))
-    guid = xbmcvfs.File(jellyfin_guid_path)
+    log.debug("valencecon_guid_path: {0}".format(valence_guid_path))
+    guid = xbmcvfs.File(valence_guid_path)
     client_id = guid.read()
     guid.close()
 
     if not client_id:
         client_id = uuid4().hex
         log.debug("Generating a new guid: {0}".format(client_id))
-        guid = xbmcvfs.File(jellyfin_guid_path, 'w')
+        guid = xbmcvfs.File(valence_guid_path, 'w')
         guid.write(client_id)
         guid.close()
-        log.debug("jellyfin_client_id (NEW): {0}".format(client_id))
+        log.debug("valencecon_client_id (NEW): {0}".format(client_id))
     else:
-        log.debug("jellyfin_client_id: {0}".format(client_id))
+        log.debug("valencecon_client_id: {0}".format(client_id))
 
     window.set_property("client_id", client_id)
     return '{}-{}'.format(client_id, hashed_name)
@@ -193,7 +194,8 @@ def get_version():
     return version
 
 
-def save_user_details(user_name, user_id, token):
+def save_user_details(profile_name, profile_id, api_key):
+    """Save Valence authentication details"""
     settings = xbmcaddon.Addon()
     save_user_to_settings = settings.getSetting(
         'save_user_to_settings') == 'true'
@@ -208,9 +210,9 @@ def save_user_details(user_name, user_id, token):
             # File doesn't exist or is empty
             auth_data = {}
 
-        auth_data[user_name] = {
-            'user_id': user_id,
-            'token': token
+        auth_data[profile_name] = {
+            'profile_id': profile_id,
+            'api_key': api_key
         }
 
         with open(os.path.join(addon_data, 'auth.json'), 'wb') as outfile:
@@ -220,19 +222,20 @@ def save_user_details(user_name, user_id, token):
                 data = data.encode('utf-8')
             outfile.write(data)
 
-    # Make the username available for easy lookup
+    # Make the profile name available for easy lookup
     window = HomeWindow()
-    settings.setSetting('username', user_name)
-    window.set_property('user_name', user_name)
+    settings.setSetting('profile_name', profile_name)
+    window.set_property('profile_name', profile_name)
 
 
 def load_user_details():
+    """Load Valence authentication details"""
     settings = xbmcaddon.Addon()
     window = HomeWindow()
     # Check current variables first, then check settings
-    user_name = window.get_property('user_name')
-    if not user_name:
-        user_name = settings.getSetting('username')
+    profile_name = window.get_property('profile_name')
+    if not profile_name:
+        profile_name = settings.getSetting('profile_name')
     save_user = settings.getSetting('save_user_to_settings') == 'true'
     addon_data = translate_path(xbmcaddon.Addon().getAddonInfo('profile'))
 
@@ -244,19 +247,19 @@ def load_user_details():
             # File doesn't exist yet
             return {}
 
-        user_data = auth_data.get(user_name, {})
+        user_data = auth_data.get(profile_name, {})
         # User doesn't exist yet
         if not user_data:
             return {}
 
-        user_id = user_data.get('user_id')
-        auth_token = user_data.get('token')
+        profile_id = user_data.get('profile_id')
+        api_key = user_data.get('api_key')
 
         # Payload to return to calling function
         user_details = {}
-        user_details['user_name'] = user_name
-        user_details['user_id'] = user_id
-        user_details['token'] = auth_token
+        user_details['profile_name'] = profile_name
+        user_details['profile_id'] = profile_id
+        user_details['api_key'] = api_key
         return user_details
 
     else:
@@ -264,6 +267,7 @@ def load_user_details():
 
 
 def get_saved_users():
+    """Get list of saved profiles"""
     settings = xbmcaddon.Addon()
     save_user = settings.getSetting('save_user_to_settings') == 'true'
     addon_data = translate_path(xbmcaddon.Addon().getAddonInfo('profile'))
@@ -282,8 +286,7 @@ def get_saved_users():
         users.append(
             {
                 'Name': user,
-                'Id': values.get('user_id'),
-                # We need something here for the listitem function
+                'Id': values.get('profile_id'),
                 'Configuration': {'Dummy': True}
             }
         )
@@ -291,123 +294,90 @@ def get_saved_users():
     return users
 
 
-def get_current_user_id():
+def get_current_profile_id():
     user_details = load_user_details()
-    user_id = user_details.get('user_id')
-    return user_id
+    profile_id = user_details.get('profile_id')
+    return profile_id
 
 
 def get_art_url(data, art_type, parent=False, index=0, server=None):
-
-    item_id = data["Id"]
-    item_type = data["Type"]
-
-    if item_type in ["Episode", "Season"]:
-        if art_type != "Primary" or parent is True:
-            item_id = data["SeriesId"]
-
-    image_tag = ""
-
-    # for episodes always use the parent BG
-    if item_type == "Episode" and art_type == "Backdrop":
-        item_id = data.get("ParentBackdropItemId")
-        bg_item_tags = data.get("ParentBackdropImageTags", [])
-        if bg_item_tags:
-            image_tag = bg_item_tags[0]
-    elif art_type == "Backdrop" and parent is True:
-        item_id = data.get("ParentBackdropItemId")
-        bg_item_tags = data.get("ParentBackdropImageTags", [])
-        if bg_item_tags:
-            image_tag = bg_item_tags[0]
-    elif art_type == "Backdrop":
-        bg_tags = data.get("BackdropImageTags", [])
-        if bg_tags:
-            image_tag = bg_tags[index]
-    elif parent is False:
-        image_tags = data.get("ImageTags", [])
-        if image_tags:
-            image_tag_type = image_tags.get(art_type)
-            if image_tag_type:
-                image_tag = image_tag_type
-    elif parent is True:
-        if ((item_type == "Episode" or item_type == "Season") and
-                art_type == 'Primary'):
-            tag_name = 'SeriesPrimaryImageTag'
-            id_name = 'SeriesId'
-        else:
-            tag_name = 'Parent{}ImageTag'.format(art_type)
-            id_name = 'Parent{}ItemId'.format(art_type)
-        parent_image_id = data.get(id_name)
-        parent_image_tag = data.get(tag_name)
-        if parent_image_id is not None and parent_image_tag is not None:
-            item_id = parent_image_id
-            image_tag = parent_image_tag
-
-    # ParentTag not passed for Banner and Art
-    if (not image_tag and
-            not ((art_type == 'Banner' or art_type == 'Art') and
-                 parent is True)):
+    """
+    Get artwork URL for Valence media items
+    Valence uses /api/media/{id}/artwork/{kind} endpoint
+    """
+    item_id = data.get("id") or data.get("Id")
+    
+    if not item_id or not server:
         return ""
 
-    artwork = "{}/Items/{}/Images/{}/{}?Format=original&Tag={}".format(
-        server, item_id, art_type, index, image_tag)
+    # Map art types to Valence artwork kinds
+    art_kind_map = {
+        'Primary': 'poster',
+        'Poster': 'poster',
+        'Backdrop': 'backdrop',
+        'Banner': 'banner',
+        'Logo': 'logo',
+        'Art': 'art',
+        'Thumb': 'thumb',
+        'Disc': 'disc',
+    }
+    
+    valence_kind = art_kind_map.get(art_type, 'poster')
+    
+    # For episodes/seasons, use parent series artwork
+    item_type = data.get("Type") or data.get("type")
+    if item_type in ["Episode", "Season"] and art_type in ["Primary", "Backdrop", "Banner", "Logo", "Art"]:
+        parent_id = data.get("seriesId") or data.get("SeriesId")
+        if parent_id:
+            item_id = parent_id
+
+    artwork = "{}/api/media/{}/artwork/{}".format(server.rstrip('/'), item_id, valence_kind)
     return artwork
 
 
 def image_url(item_id, art_type, index, width, height, image_tag, server):
-
-    # test imageTag e3ab56fe27d389446754d0fb04910a34
-    artwork = "{}/Items/{}/Images/{}/{}?Format=original&Tag={}".format(
-        server, item_id, art_type, index, image_tag
-    )
+    """Legacy function - kept for compatibility"""
+    artwork = "{}/api/media/{}/artwork/{}".format(server.rstrip('/'), item_id, art_type)
     if int(width) > 0:
-        artwork += '&MaxWidth={}'.format(width)
+        artwork += '&maxWidth={}'.format(width)
     if int(height) > 0:
-        artwork += '&MaxHeight={}'.format(height)
-
+        artwork += '&maxHeight={}'.format(height)
     return artwork
 
 
 def get_default_filters():
-
+    """Get default fields to include in item requests"""
     addon_settings = xbmcaddon.Addon()
     include_media = addon_settings.getSetting("include_media") == "true"
     include_people = addon_settings.getSetting("include_people") == "true"
     include_overview = addon_settings.getSetting("include_overview") == "true"
 
-    filer_list = [
-        "DateCreated",
-        "EpisodeCount",
-        "SeasonCount",
-        "Path",
-        "Genres",
-        "Studios",
-        "Etag",
-        "Taglines",
-        "SortName",
-        "RecursiveItemCount",
-        "ChildCount",
-        "ProductionLocations",
-        "CriticRating",
-        "OfficialRating",
-        "CommunityRating",
-        "PremiereDate",
-        "ProductionYear",
-        "AirTime",
-        "Status",
-        "Tags"
+    filter_list = [
+        "overview",
+        "genres",
+        "rating",
+        "year",
+        "durationSeconds",
+        "videoCodec",
+        "videoRange",
+        "audioStreams",
+        "subtitleStreams",
+        "addedAt",
+        "sizeBytes",
+        "width",
+        "height",
+        "hasPoster",
+        "hasBackdrop",
+        "hasLogo",
+        "posterUrl",
+        "externalId",
+        "releaseDate",
+        "tagline",
+        "certification",
+        "cast",
     ]
 
-    if include_media:
-        filer_list.append("MediaStreams")
-
-    if include_people:
-        filer_list.append("People")
-
-    if include_overview:
-        filer_list.append("Overview")
-
-    return ','.join(filer_list)
+    return ','.join(filter_list)
 
 
 def translate_path(path):
@@ -450,13 +420,14 @@ def get_bitrate(enum_value):
                20000, 25000, 30000, 35000, 40000, 100000, 1000000, 2147483]
     return bitrate[int(enum_value) if enum_value else 24] * 1000
 
+
 def get_filtered_items_count_text():
     settings = xbmcaddon.Addon()
-    if settings.getSetting("hide_x_filtered_items_count") == 'true' :
+    if settings.getSetting("hide_x_filtered_items_count") == 'true':
         return ""
     else:
         return " (" + settings.getSetting("show_x_filtered_items") + ")"
-    
+     
 def seconds_to_ticks(seconds:float):
     return seconds * 10000000
 

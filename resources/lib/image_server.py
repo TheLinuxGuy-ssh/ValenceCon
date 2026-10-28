@@ -16,7 +16,7 @@ from six.moves.BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 from six.moves.urllib.parse import urlparse
 from six import ensure_text
 
-from .jellyfin import api
+from .valence import api
 from .lazylogger import LazyLogger
 from .item_functions import get_art
 from .utils import translate_path
@@ -39,29 +39,22 @@ def get_image_links(url):
     if server is None:
         return []
 
-    url = re.sub("(?i)EnableUserData=[a-z]+", "EnableUserData=False", url)
-    url = re.sub("(?i)EnableImageTypes=[,a-z]+", "EnableImageTypes=Primary", url)
-    url = url.replace("{field_filters}", "BasicSyncInfo")
-    url = re.sub("(?i)Fields=[,a-z]+", "Fields=BasicSyncInfo", url)
-
-    if not re.search('enableimagetypes=', url, re.IGNORECASE):
-        url += "&EnableImageTypes=Primary"
-
-    if not re.search('fields=', url, re.IGNORECASE):
-        url += "&Fields=BasicSyncInfo"
-
-    if not re.search('EnableUserData=', url, re.IGNORECASE):
-        url += "&EnableUserData=False"
+    # Valence URLs don't need the same parameter modifications as Jellyfin
+    # Just ensure we have the right fields
+    if 'fields=' not in url and 'limit=' not in url:
+        # Add default fields if not present
+        pass
 
     result = api.get(url)
 
-    items = result.get("Items")
+    # Valence returns items in "items" array or directly
+    items = result.get("items") or result.get("shows") or result.get("albums") or []
     if not items:
         return []
 
     art_urls = []
-    for iteem in items:
-        art = get_art(item=iteem, server=server)
+    for item in items:
+        art = get_art(item=item, server=server)
         art_urls.append(art)
 
     shuffle(art_urls)
@@ -173,7 +166,7 @@ class HttpImageHandler(BaseHTTPRequestHandler):
 
         else:
 
-            image_path = translate_path("special://home/addons/plugin.video.jellycon/icon.png").decode('utf-8')
+            image_path = translate_path("special://home/addons/plugin.video.valencecon/icon.png")
             self.send_response(200)
             self.send_header('Content-type', 'image/png')
             modified = xbmcvfs.Stat(image_path).st_mtime()

@@ -48,7 +48,7 @@ class IntroSkipperService(threading.Thread):
                 play_data = get_playing_data()
                 item_id = play_data.get("item_id", None)
                 if item_id is not None:
-                    log.debug("SkipService: playing item is from jellyfin : {0}".format(item_id))
+                    log.debug("SkipService: playing item is from valence : {0}".format(item_id))
 
                     log.debug("SkipService: segments : {0}".format(segments))
                     # If item id has changed or is new, retrieve segments

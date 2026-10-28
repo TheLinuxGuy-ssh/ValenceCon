@@ -15,10 +15,10 @@ import xbmc
 from six import StringIO
 from six.moves.urllib.parse import quote, unquote, parse_qsl, urlencode
 
-from .jellyfin import api
+from .valence import api
 from .utils import (
     translate_string, get_version, load_user_details, get_art_url,
-    get_default_filters, translate_path, kodi_version, get_jellyfin_url
+    get_default_filters, translate_path, kodi_version, get_valence_url
 )
 from .kodi_utils import HomeWindow
 from .datamanager import clear_cached_server_data
@@ -27,7 +27,8 @@ from .lazylogger import LazyLogger
 from .menu_functions import (
     display_main_menu, display_menu, show_movie_alpha_list,
     show_tvshow_alpha_list, show_genre_list, show_search,
-    show_movie_pages, show_artist_alpha_list
+    show_movie_pages, show_artist_alpha_list, show_movie_years,
+    show_movie_tags
 )
 from .server_sessions import show_server_sessions
 from .action_menu import ActionMenu
@@ -54,7 +55,7 @@ user_details = load_user_details()
 
 @timer
 def main_entry_point():
-    log.debug("===== JellyCon START =====")
+    log.debug("===== ValenceCon START =====")
 
     settings = xbmcaddon.Addon()
     profile_count = int(settings.getSetting('profile_count'))
@@ -66,7 +67,7 @@ def main_entry_point():
         pr.enable()
 
     log.debug("Running Python: {0}".format(sys.version_info))
-    log.debug("Running JellyCon: {0}".format(get_version()))
+    log.debug("Running ValenceCon: {0}".format(get_version()))
     log.debug("Kodi BuildVersion: {0}".format(
         xbmc.getInfoLabel("System.BuildVersion"))
     )
@@ -89,14 +90,12 @@ def main_entry_point():
         new_params["item_type"] = "Movie"
         new_params["media_type"] = "movies"
         show_content(new_params)
-    elif mode == "CHANGE_USER":
-        check_server(change_user=True, notify=False)
+    elif mode == "CHANGE_PROFILE":
+        check_server(change_profile=True, notify=False)
     elif mode == "CACHE_ARTWORK":
         CacheArtwork().cache_artwork_interactive()
     elif mode == "DETECT_SERVER":
         check_server(force=True, notify=True)
-    elif mode == "DETECT_SERVER_USER":
-        check_server(force=True, change_user=True, notify=False)
     elif mode == "DETECT_CONNECTION_SPEED":
         check_connection_speed()
     elif mode == "playTrailer":
@@ -147,8 +146,8 @@ def main_entry_point():
     elif mode == "SHOW_ADDON_MENU":
         display_menu(params)
     else:
-        log.debug("JellyCon -> Mode: {0}".format(mode))
-        log.debug("JellyCon -> URL: {0}".format(param_url))
+        log.debug("ValenceCon -> Mode: {0}".format(mode))
+        log.debug("ValenceCon -> URL: {0}".format(param_url))
 
         if mode == "GET_CONTENT":
             get_content(param_url, params)
@@ -162,7 +161,7 @@ def main_entry_point():
         pr.disable()
 
         file_time_stamp = time.strftime("%Y%m%d-%H%M%S")
-        tab_file_name = "{}jellycon-profile({}).txt".format(
+        tab_file_name = "{}valencecon-profile({}).txt".format(
             __addondir__, file_time_stamp
         )
         s = StringIO()
@@ -175,7 +174,7 @@ def main_entry_point():
         with open(tab_file_name, 'w') as f:
             f.write(s.getvalue())
 
-    log.debug("===== JellyCon FINISHED =====")
+    log.debug("===== ValenceCon FINISHED =====")
 
 
 def toggle_watched(params):
@@ -183,24 +182,32 @@ def toggle_watched(params):
     item_id = params.get("item_id", None)
     if item_id is None:
         return
-    url = "/Users/{}/Items/{}?format=json".format(api.user_id, item_id)
-    result = api.get(url)
-    log.debug("toggle_watched item info: {0}".format(result))
+    
+    media = api.get_media(item_id)
+    log.debug("toggle_watched item info: {0}".format(media))
 
-    user_data = result.get("UserData", None)
-    if user_data is None:
-        return
+    # Valence uses progress endpoint to mark watched
+    if media and media.get("Type") == "Episode":
+        # Mark as watched by reporting progress at end
+        api.report_progress(item_id, media.get("durationSeconds", 0), media.get("durationSeconds", 0), True)
+    elif media:
+        api.report_progress(item_id, media.get("durationSeconds", 0), media.get("durationSeconds", 0), True)
+    
+    check_for_new_content()
+    home_window = HomeWindow()
+    last_url = home_window.get_property("last_content_url")
+    if last_url:
+        log.debug("markWatched_lastUrl: {0}".format(last_url))
+        home_window.set_property("skip_cache_for_{}".format(last_url), "true")
 
-    if user_data.get("Played", False) is False:
-        mark_item_watched(item_id)
-    else:
-        mark_item_unwatched(item_id)
+    xbmc.executebuiltin("Container.Refresh")
 
 
 def mark_item_watched(item_id):
     log.debug("Mark Item Watched: {0}".format(item_id))
-    url = "/Users/{}/PlayedItems/{}".format(api.user_id, item_id)
-    api.post(url)
+    media = api.get_media(item_id)
+    if media:
+        api.report_progress(item_id, media.get("durationSeconds", 0), media.get("durationSeconds", 0), True)
     check_for_new_content()
     home_window = HomeWindow()
     last_url = home_window.get_property("last_content_url")
@@ -213,8 +220,8 @@ def mark_item_watched(item_id):
 
 def mark_item_unwatched(item_id):
     log.debug("Mark Item UnWatched: {0}".format(item_id))
-    url = "/Users/{}/PlayedItems/{}".format(api.user_id, item_id)
-    api.delete(url)
+    # For Valence, reset progress to 0
+    api.report_progress(item_id, 0, 1, False)
     check_for_new_content()
     home_window = HomeWindow()
     last_url = home_window.get_property("last_content_url")
@@ -227,8 +234,8 @@ def mark_item_unwatched(item_id):
 
 def mark_item_favorite(item_id):
     log.debug("Add item to favourites: {0}".format(item_id))
-    url = "/Users/{}/FavoriteItems/{}".format(api.user_id, item_id)
-    api.post(url)
+    # Valence uses /api/media/{id}/favourite
+    api.post('/media/{}/favourite'.format(item_id))
     check_for_new_content()
     home_window = HomeWindow()
     last_url = home_window.get_property("last_content_url")
@@ -240,8 +247,7 @@ def mark_item_favorite(item_id):
 
 def unmark_item_favorite(item_id):
     log.debug("Remove item from favourites: {0}".format(item_id))
-    url = "/Users/{}/FavoriteItems/{}".format(api.user_id, item_id)
-    api.delete(url)
+    api.delete('/media/{}/favourite'.format(item_id))
     check_for_new_content()
     home_window = HomeWindow()
     last_url = home_window.get_property("last_content_url")
@@ -252,12 +258,14 @@ def unmark_item_favorite(item_id):
 
 
 def delete(item_id):
-    item = api.get("/Users/{}/Items/{}".format(api.user_id, item_id))
+    media = api.get_media(item_id)
 
-    item_id = item.get("Id")
-    item_name = item.get("Name", "")
-    series_name = item.get("SeriesName", "")
-    ep_number = item.get("IndexNumber", -1)
+    if not media:
+        return
+
+    item_name = media.get("title") or media.get("Name", "")
+    series_name = media.get("seriesTitle") or media.get("SeriesName", "")
+    ep_number = media.get("episodeNumber") or media.get("IndexNumber", -1)
 
     final_name_parts = []
 
@@ -270,7 +278,7 @@ def delete(item_id):
     final_name_parts.append(item_name)
     final_name = " - ".join(final_name_parts)
 
-    if not item.get("CanDelete", False):
+    if not media.get("CanDelete", False):
         xbmcgui.Dialog().ok(
             translate_string(30135), translate_string(30417), final_name
         )
@@ -283,7 +291,7 @@ def delete(item_id):
     )
     if return_value:
         log.debug('Deleting Item: {0}'.format(item_id))
-        url = '/Items/{}'.format(item_id)
+        url = '/media/{}'.format(item_id)
         progress = xbmcgui.DialogProgress()
         progress.create(translate_string(30052), translate_string(30053))
         api.delete(url)
@@ -316,7 +324,7 @@ def get_params():
     request_path = plugin_path.replace("plugin://{}".format(addon_id), "")
     param["request_path"] = request_path
 
-    log.debug("JellyCon -> Detected parameters: {0}".format(param))
+    log.debug("ValenceCon -> Detected parameters: {0}".format(param))
     return param
 
 
@@ -327,76 +335,77 @@ def show_menu(params):
     settings = xbmcaddon.Addon()
     item_id = params["item_id"]
 
-    url = "/Users/{}/Items/{}?format=json".format(api.user_id, item_id)
-    result = api.get(url)
-    log.debug("Menu item info: {0}".format(result))
+    media = api.get_media(item_id)
+    log.debug("Menu item info: {0}".format(media))
 
-    if result is None:
+    if media is None:
         return
 
     action_items = []
 
     # Additional items to include in the context menu for different item types
-    if result["Type"] in ["Episode", "Movie", "Music", "Video", "Audio",
-                          "TvChannel", "Program", "MusicVideo"]:
+    media_type = media.get("Type") or media.get("type", "")
+    if media_type in ["Episode", "Movie", "Music", "Video", "Audio",
+                      "LiveChannel", "Program", "MusicVideo", "MusicTrack", "Book"]:
         li = xbmcgui.ListItem(translate_string(30314), offscreen=True)
         li.setProperty('menu_id', 'play')
         action_items.append(li)
 
-    if result["Type"] in ["Season", "MusicArtist", "MusicAlbum", "Playlist",
-                          "MusicGenre"]:
+    if media_type in ["Season", "MusicArtist", "MusicAlbum", "Playlist",
+                      "MusicGenre"]:
         li = xbmcgui.ListItem(translate_string(30317), offscreen=True)
         li.setProperty('menu_id', 'play_all')
         action_items.append(li)
 
-    if result["Type"] in ["MusicArtist", "MusicAlbum", "Playlist",
-                          "Series", "Season", "MusicGenre"]:
+    if media_type in ["MusicArtist", "MusicAlbum", "Playlist",
+                      "Series", "Season", "MusicGenre"]:
         li = xbmcgui.ListItem(translate_string(30448), offscreen=True)
         li.setProperty('menu_id', 'shuffle')
         action_items.append(li)
 
-    if result["Type"] in ["MusicArtist", "MusicAlbum", "Audio"]:
+    if media_type in ["MusicArtist", "MusicAlbum", "Audio", "MusicTrack"]:
         li = xbmcgui.ListItem(translate_string(30449), offscreen=True)
         li.setProperty('menu_id', 'instant_mix')
         action_items.append(li)
 
-    if result["Type"] in ["Episode", "Movie", "Video", "TvChannel",
-                          "Program", "MusicVideo"]:
+    if media_type in ["Episode", "Movie", "Video", "LiveChannel",
+                      "Program", "MusicVideo"]:
         li = xbmcgui.ListItem(translate_string(30275), offscreen=True)
         li.setProperty('menu_id', 'transcode')
         action_items.append(li)
 
-    if result["Type"] in ["Episode", "Movie", "Music", "Video", "Audio",
-                          "MusicArtist", "MusicAlbum", "MusicVideo",
-                          "MusicGenre"]:
+    if media_type in ["Episode", "Movie", "Music", "Video", "Audio",
+                      "MusicArtist", "MusicAlbum", "MusicVideo",
+                      "MusicGenre", "MusicTrack", "Book"]:
         li = xbmcgui.ListItem(translate_string(30402), offscreen=True)
         li.setProperty('menu_id', 'add_to_playlist')
         action_items.append(li)
 
-    if result["Type"] in ("Movie", "Series"):
+    if media_type in ("Movie", "Series"):
         li = xbmcgui.ListItem(translate_string(30307), offscreen=True)
         li.setProperty('menu_id', 'play_trailer')
         action_items.append(li)
 
-    if result["Type"] == "Episode" and result["ParentId"] is not None:
+    if media_type == "Episode" and media.get("ParentId") or media.get("seriesId"):
         li = xbmcgui.ListItem(translate_string(30327), offscreen=True)
         li.setProperty('menu_id', 'view_season')
         action_items.append(li)
 
-    if result["Type"] in ("Series", "Season", "Episode"):
+    if media_type in ("Series", "Season", "Episode"):
         li = xbmcgui.ListItem(translate_string(30354), offscreen=True)
         li.setProperty('menu_id', 'view_series')
         action_items.append(li)
 
-    if result["Type"] == "Movie":
+    if media_type == "Movie":
         li = xbmcgui.ListItem("Show Extras", offscreen=True)
         li.setProperty('menu_id', 'show_extras')
         action_items.append(li)
 
-    user_data = result.get("UserData", None)
+    # User data from progress
+    user_data = media.get("userProgress") or media.get("UserData") or {}
     if user_data:
-        progress = user_data.get("PlaybackPositionTicks", 0) != 0
-        played = user_data.get("Played", False)
+        progress = user_data.get("positionSeconds", 0) != 0
+        played = user_data.get("isFinished", False) or media.get("isPlayed", False)
         if not played or progress:
             li = xbmcgui.ListItem(translate_string(30270), offscreen=True)
             li.setProperty('menu_id', 'mark_watched')
@@ -406,16 +415,16 @@ def show_menu(params):
             li.setProperty('menu_id', 'mark_unwatched')
             action_items.append(li)
 
-        if user_data.get("IsFavorite", False) is False:
+        if media.get("isFavorite", False) is False:
             li = xbmcgui.ListItem(translate_string(30272), offscreen=True)
-            li.setProperty('menu_id', 'jellyfin_set_favorite')
+            li.setProperty('menu_id', 'set_favorite')
             action_items.append(li)
         else:
             li = xbmcgui.ListItem(translate_string(30273), offscreen=True)
-            li.setProperty('menu_id', 'jellyfin_unset_favorite')
+            li.setProperty('menu_id', 'unset_favorite')
             action_items.append(li)
 
-    can_delete = result.get("CanDelete", False)
+    can_delete = media.get("CanDelete", False)
     if can_delete:
         li = xbmcgui.ListItem(translate_string(30274), offscreen=True)
         li.setProperty('menu_id', 'delete')
@@ -429,7 +438,7 @@ def show_menu(params):
     li.setProperty('menu_id', 'refresh_images')
     action_items.append(li)
 
-    if result["Type"] in ["Movie", "Series"]:
+    if media_type in ["Movie", "Series"]:
         li = xbmcgui.ListItem(translate_string(30399), offscreen=True)
         li.setProperty('menu_id', 'hide')
         action_items.append(li)
@@ -486,28 +495,13 @@ def show_menu(params):
         settings.setSetting(view_key, "")
 
     elif selected_action == "refresh_server":
-        url_path = "/Items/{}/Refresh".format(item_id)
-        url_params = {
-            "Recursive": True,
-            "ImageRefreshMode": "FullRefresh",
-            "MetadataRefreshMode": "FullRefresh",
-            "ReplaceAllImages": True,
-            "ReplaceAllMetadata": True
-        }
-
-        url = get_jellyfin_url(url_path, url_params)
-        res = api.post(url)
-        log.debug("Refresh Server Response: {0}".format(res))
+        # Valence doesn't have a direct refresh endpoint like Jellyfin
+        # This would need to be implemented via library scan
+        xbmcgui.Dialog().ok(translate_string(30135), "Server refresh not implemented for Valence yet")
 
     elif selected_action == "hide":
-        user_details = load_user_details()
-        user_name = user_details["user_name"]
-        hide_tag_string = "hide-" + user_name
-        url = "/Items/{}/Tags/Add".format(item_id)
-        post_tag_data = {"Tags": [{"Name": hide_tag_string}]}
-        res = api.post(url, post_tag_data)
-        log.debug("Add Tag Response: {0}".format(res))
-
+        # Valence uses hidden endpoint
+        api.post('/media/{}/hidden'.format(item_id))
         check_for_new_content()
 
         last_url = home_window.get_property("last_content_url")
@@ -559,10 +553,10 @@ def show_menu(params):
         params["action"] = "add_to_playlist"
         play_action(params)
 
-    elif selected_action == "jellyfin_set_favorite":
+    elif selected_action == "set_favorite":
         mark_item_favorite(item_id)
 
-    elif selected_action == "jellyfin_unset_favorite":
+    elif selected_action == "unset_favorite":
         unmark_item_favorite(item_id)
 
     elif selected_action == "mark_watched":
@@ -575,84 +569,73 @@ def show_menu(params):
         delete(item_id)
 
     elif selected_action == "show_extras":
-        url = "/Users/{}/Items/{}/SpecialFeatures".format(api.user_id, item_id)
-        plugin_params = {
-            "url": url,
-            "mode": "GET_CONTENT",
-            "media_type": "Videos"
-        }
-
-        action_params = urlencode(plugin_params)
-
-        action_url = "plugin://{}/?{}".format(addon_id, action_params)
-        built_in_command = 'ActivateWindow(Videos, {}, return)'.format(
-            action_url
-        )
-        xbmc.executebuiltin(built_in_command)
+        # Valence doesn't have special features endpoint yet
+        xbmcgui.Dialog().ok(translate_string(30135), "Extras not available for Valence yet")
 
     elif selected_action == "view_season":
         xbmc.executebuiltin("Dialog.Close(all,true)")
-        parent_id = result["ParentId"]
-        series_id = result["SeriesId"]
-
-        url_path = "/Shows/{}/Episodes".format(series_id)
-        url_params = {
-            "userId": api.user_id,
-            "seasonId": parent_id,
-            "IsVirtualUnAired": False,
-            "IsMissing": False,
-            "Fields": "SpecialEpisodeNumbers,{}".format(get_default_filters())
-        }
-
-        url = get_jellyfin_url(url_path, url_params)
-
-        plugin_params = {
-            "url": url,
-            "mode": "GET_CONTENT",
-            "media_type": "Season"
-        }
-
-        action_params = urlencode(plugin_params)
-
-        action_url = "plugin://{}/?{}".format(addon_id, action_params)
-        built_in_command = 'ActivateWindow(Videos, {}, return)'.format(
-            action_url
-        )
-        xbmc.executebuiltin(built_in_command)
+        series_id = media.get("SeriesId") or media.get("seriesId")
+        if series_id:
+            # Get library for this series
+            libraries = api.get_libraries()
+            library_id = None
+            for lib in libraries:
+                if lib.get('kind') in ['shows', 'anime']:
+                    library_id = lib.get('id')
+                    break
+            
+            if library_id:
+                season_id = media.get("ParentId") or media.get("seasonId")
+                url = get_valence_url('/libraries/{}/items'.format(library_id), {
+                    'seasonId': season_id,
+                    'seriesId': series_id,
+                    'type': 'episode',
+                    'limit': settings.getSetting("show_x_filtered_items"),
+                    'fields': get_default_filters(),
+                })
+                
+                plugin_params = {
+                    "url": url,
+                    "mode": "GET_CONTENT",
+                    "media_type": "Episodes"
+                }
+                action_params = urlencode(plugin_params)
+                action_url = "plugin://{}/?{}".format(addon_id, action_params)
+                built_in_command = 'ActivateWindow(Videos, {}, return)'.format(action_url)
+                xbmc.executebuiltin(built_in_command)
 
     elif selected_action == "view_series":
         xbmc.executebuiltin("Dialog.Close(all,true)")
 
-        series_id = result["SeriesId"]
-        if not series_id:
-            series_id = item_id
+        series_id = media.get("SeriesId") or media.get("seriesId") or item_id
 
-        url_path = "/Shows/{}/Seasons".format(series_id)
-        url_params = {
-            "userId": api.user_id,
-            "Fields": get_default_filters(),
-        }
-
-        url = get_jellyfin_url(url_path, url_params)
-
-        plugin_params = {
-            "url": url,
-            "mode": "GET_CONTENT",
-            "media_type": "Series"
-        }
-
-        action_params = urlencode(plugin_params)
-
-        action_url = "plugin://{}/?{}".format(addon_id, action_params)
-
-        if xbmc.getCondVisibility("Window.IsActive(home)"):
-            built_in_command = 'ActivateWindow(Videos, {}, return'.format(
-                action_url
-            )
-        else:
-            built_in_command = 'Container.Update({})'.format(action_url)
-
-        xbmc.executebuiltin(built_in_command)
+        libraries = api.get_libraries()
+        library_id = None
+        for lib in libraries:
+            if lib.get('kind') in ['shows', 'anime']:
+                library_id = lib.get('id')
+                break
+        
+        if library_id:
+            url = get_valence_url('/libraries/{}/shows'.format(library_id), {
+                'seriesId': series_id,
+                'fields': get_default_filters(),
+            })
+            
+            plugin_params = {
+                "url": url,
+                "mode": "GET_CONTENT",
+                "media_type": "tvshows"
+            }
+            action_params = urlencode(plugin_params)
+            action_url = "plugin://{}/?{}".format(addon_id, action_params)
+            
+            if xbmc.getCondVisibility("Window.IsActive(home)"):
+                built_in_command = 'ActivateWindow(Videos, {}, return'.format(action_url)
+            else:
+                built_in_command = 'Container.Update({})'.format(action_url)
+            
+            xbmc.executebuiltin(built_in_command)
 
     elif selected_action == "refresh_images":
         CacheArtwork().delete_cached_images(item_id)
@@ -669,24 +652,41 @@ def show_content(params):
     settings = xbmcaddon.Addon()
     group_movies = settings.getSetting('group_movies') == "true"
 
-    if item_type.lower().find("movie") == -1:
+    if item_type and item_type.lower().find("movie") == -1:
         group_movies = False
 
-    url_path = "/Users/{}/Items".format(api.user_id)
-    url_params = {
-        "ImageTypeLimit": 1,
-        "IsMissing": False,
-        "Fields": get_default_filters(),
-        "CollapseBoxSetItems": group_movies,
-        "GroupItemsIntoCollections": group_movies,
-        "Recursive": True,
-        "SortBy": "Name",
-        "SortOrder": "Ascending",
-        "IsVirtualUnaired": False,
-        "IncludeItemTypes": item_type
+    # Get all libraries of the appropriate kind
+    libraries = api.get_libraries()
+    if not libraries:
+        return
+    
+    target_kinds = {
+        'Movie': ['movies'],
+        'Series': ['shows', 'anime'],
+        'MusicAlbum': ['music'],
+        'MusicTrack': ['music'],
+        'Book': ['books'],
     }
-
-    content_url = get_jellyfin_url(url_path, url_params)
+    
+    kinds = target_kinds.get(item_type, ['movies'])
+    library_ids = [l['id'] for l in libraries if l.get('kind') in kinds]
+    
+    if not library_ids:
+        return
+    
+    lib_ids = ','.join(library_ids)
+    
+    url_params = {
+        "limit": 100,
+        "fields": get_default_filters(),
+        "libraryIds": lib_ids,
+    }
+    
+    if group_movies:
+        url_params['collapseBoxSets'] = 'true'
+        url_params['groupIntoCollections'] = 'true'
+    
+    content_url = get_valence_url('/libraries/items', url_params)
 
     log.debug("showContent Content Url: {0}".format(content_url))
     get_content(content_url, params)
@@ -698,27 +698,20 @@ def search_results_person(params):
 
     person_id = params.get("person_id")
 
-    url_path = "/Users/{}/Items".format(api.user_id)
-    url_params = {
-        "PersonIds": person_id,
-        "Recursive": True,
-        "Fields": get_default_filters()
-    }
-
-    details_url = get_jellyfin_url(url_path, url_params)
+    url = get_valence_url('/people/{}'.format(person_id), {
+        'fields': get_default_filters(),
+    })
 
     params["name_format"] = "Episode|episode_name_format"
 
     dir_items, detected_type, total_records = process_directory(
-        details_url, None, params
+        url, None, params
     )
 
     log.debug('search_results_person results: {0}'.format(dir_items))
     log.debug('search_results_person detect_type: {0}'.format(detected_type))
 
     if detected_type is not None:
-        # if the media type is not set then try to use the detected type
-        log.debug("Detected content type: {0}".format(detected_type))
         content_type = None
 
         if detected_type == "Movie":
@@ -727,7 +720,7 @@ def search_results_person(params):
             content_type = 'episodes'
         elif detected_type == "Series":
             content_type = 'tvshows'
-        elif detected_type in ["Music", "Audio", "Musicalbum"]:
+        elif detected_type in ["Music", "Audio", "MusicAlbum", "MusicTrack"]:
             content_type = 'songs'
 
         if content_type:
@@ -748,7 +741,7 @@ def search_results(params):
         query_string = unquote(query_string)
         log.debug("query_string : {0}".format(query_string))
 
-    item_type = item_type.lower()
+    item_type = item_type.lower() if item_type else ''
 
     if item_type == 'movie':
         heading_type = translate_string(30231)
@@ -808,87 +801,27 @@ def search_results(params):
         progress.create(translate_string(30112))
         progress.update(0, translate_string(30113))
 
-    # what type of search
-    if item_type == "person":
-        url_path = "/Persons"
-        url_params = {
-            "searchTerm": query,
-            "IncludePeople": True,
-            "IncludeMedia": False,
-            "IncludeGenres": False,
-            "IncludeStudios": False,
-            "IncludeArtists": False,
-            "Limit": 16,
-            "Fields": "PrimaryImageAspectRatio,BasicSyncInfo,ProductionYear",
-            "Recursive": True,
-            "EnableTotalRecordCount": False,
-            "ImageTypeLimit": 1,
-            "userId": api.user_id
-        }
+    # Search using Valence catalogue search
+    search_url = get_valence_url('/admin/catalogue/search', {
+        'q': query,
+        'limit': 16,
+    })
 
-        search_url = get_jellyfin_url(url_path, url_params)
+    search_results_data = api.get(search_url)
+    log.debug("Search Result : {0}".format(search_results_data))
+    
+    if search_results_data is None:
+        return
 
-        person_search_results = api.get(search_url)
-        log.debug("Person Search Result : {0}".format(person_search_results))
-        if person_search_results is None:
-            return
-
-        person_items = person_search_results.get("Items", [])
-
-        server = settings.getSetting('server_address')
-        list_items = []
-        for item in person_items:
-            person_id = item.get('Id')
-            person_name = item.get('Name')
-            person_thumbnail = get_art_url(item, "Primary", server=server)
-
-            action_url = "{}?mode=NEW_SEARCH_PERSON&person_id={}".format(
-                addon_id, person_id
-            )
-
-            list_item = xbmcgui.ListItem(label=person_name, offscreen=True)
-            list_item.setProperty("id", person_id)
-
-            art_links = {}
-            art_links["icon"] = "DefaultActor.png"
-            if person_thumbnail:
-                art_links["thumb"] = person_thumbnail
-                art_links["poster"] = person_thumbnail
-            list_item.setArt(art_links)
-
-            item_tuple = (action_url, list_item, True)
-            list_items.append(item_tuple)
-
-        xbmcplugin.setContent(handle, 'artists')
-        xbmcplugin.addDirectoryItems(handle, list_items)
-        xbmcplugin.endOfDirectory(handle, cacheToDisc=False)
-
-    else:
-        url_path = "/Users/{}/Items".format(api.user_id)
-        url_params = {
-            "searchTerm": query,
-            "IncludePeople": False,
-            "IncludeMedia": True,
-            "IncludeGenres": False,
-            "IncludeStudios": False,
-            "IncludeArtists": False,
-            "IncludeItemTypes": item_type,
-            "Limit": 16,
-            "Fields": get_default_filters(),
-            "Recursive": True,
-            "EnableTotalRecordCount": False,
-            "ImageTypeLimit": 1
-        }
-
-        search_url = get_jellyfin_url(url_path, url_params)
-
-        # set content type
-        xbmcplugin.setContent(handle, content_type)
-        dir_items, detected_type, total_records = process_directory(
-            search_url, progress, params
-        )
-        xbmcplugin.addDirectoryItems(handle, dir_items)
-        xbmcplugin.endOfDirectory(handle, cacheToDisc=False)
+    # Set content type
+    xbmcplugin.setContent(handle, content_type)
+    
+    # Process search results
+    dir_items, detected_type, total_records = process_directory(
+        search_url, progress, params
+    )
+    xbmcplugin.addDirectoryItems(handle, dir_items)
+    xbmcplugin.endOfDirectory(handle, cacheToDisc=False)
 
     if progress is not None:
         progress.update(100, translate_string(30125))
@@ -939,7 +872,7 @@ def play_action(params):
     play_info["media_source_id"] = media_source_id
     play_info["subtitle_stream_index"] = subtitle_stream_index
     play_info["audio_stream_index"] = audio_stream_index
-    log.info("Sending jellycon_play_action : {0}".format(play_info))
+    log.info("Sending valencecon_play_action : {0}".format(play_info))
     play_file(play_info)
 
 
@@ -949,82 +882,5 @@ def play_item_trailer(item_id):
     if handle != -1:
         xbmcplugin.endOfDirectory(handle, succeeded=False, updateListing=False, cacheToDisc=False)
 
-    url = "/Users/{}/Items/{}/LocalTrailers?format=json".format(
-        user_details.get('user_id'), item_id
-    )
-
-    result = api.get(url)
-
-    if result is None:
-        return
-
-    log.debug("LocalTrailers {0}".format(result))
-    count = 1
-
-    trailer_names = []
-    trailer_list = []
-    for trailer in result:
-        info = {}
-        info["type"] = "local"
-        name = trailer.get("Name")
-        while not name or name in trailer_names:
-            name = "Trailer {}".format(count)
-            count += 1
-        info["name"] = name
-        info["id"] = trailer.get("Id")
-        count += 1
-        trailer_names.append(name)
-        trailer_list.append(info)
-
-    url = "/Users/{}/Items/{}?format=json&Fields=RemoteTrailers".format(
-        user_details.get("user_id"), item_id
-    )
-    result = api.get(url)
-    log.debug("RemoteTrailers: {0}".format(result))
-    count = 1
-
-    if result is None:
-        return
-
-    remote_trailers = result.get("RemoteTrailers", [])
-    for trailer in remote_trailers:
-        info = {}
-        info["type"] = "remote"
-        url = trailer.get("Url", "none")
-        if url.lower().find("youtube") != -1:
-            info["url"] = url
-            name = trailer.get("Name")
-            while not name or name in trailer_names:
-                name = "Trailer {}".format(count)
-                count += 1
-            info["name"] = name
-            trailer_names.append(name)
-            trailer_list.append(info)
-
-    log.debug("TrailerList: {0}".format(trailer_list))
-
-    trailer_text = []
-    for trailer in trailer_list:
-        name = "{} ({})".format(
-            trailer.get("name"), trailer.get("type")
-        )
-        trailer_text.append(name)
-
-    dialog = xbmcgui.Dialog()
-    resp = dialog.select(translate_string(30308), trailer_text)
-    if resp > -1:
-        trailer = trailer_list[resp]
-        log.debug("SelectedTrailer: {0}".format(trailer))
-
-        if trailer.get("type") == "local":
-            params = {}
-            params["item_id"] = trailer.get("id")
-            play_action(params)
-
-        elif trailer.get("type") == "remote":
-            youtube_id = trailer.get("url").rsplit('=', 1)[1]
-            url_root = "plugin.video.youtube/play/?video_id="
-            play_url = "PlayMedia(plugin://{}{})".format(url_root, youtube_id)
-            log.debug("youtube_plugin: {0}".format(play_url))
-
-            xbmc.executebuiltin(play_url)
+    # Valence doesn't have local trailers endpoint yet
+    xbmcgui.Dialog().ok(translate_string(30135), "Trailers not available for Valence yet")

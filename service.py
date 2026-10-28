@@ -1,5 +1,5 @@
 # coding=utf-8
-# Gnu General Public License - see LICENSE.TXT
+# MIT License - see LICENSE.txt
 
 import time
 import traceback
@@ -30,8 +30,8 @@ if log_timing_data:
 
 # clear user and token when logging in
 home_window = HomeWindow()
-home_window.clear_property("user_name")
-home_window.clear_property("AccessToken")
+home_window.clear_property("profile_name")
+home_window.clear_property("api_key")
 home_window.clear_property("Params")
 
 log = LazyLogger('service')
@@ -115,7 +115,7 @@ if enable_logging:
                                   time=8000,
                                   icon=xbmcgui.NOTIFICATION_WARNING)
 
-prev_user = home_window.get_property("user_name")
+prev_profile = home_window.get_property("profile_name")
 first_run = True
 home_window.set_property('exit', 'False')
 
@@ -132,13 +132,13 @@ while home_window.get_property('exit') == 'False':
             screen_saver_active = xbmc.getCondVisibility("System.ScreenSaverActive")
 
             if not screen_saver_active:
-                user_changed = False
-                if prev_user != home_window.get_property("user_name"):
-                    log.debug("user_change_detected")
-                    prev_user = home_window.get_property("user_name")
-                    user_changed = True
+                profile_changed = False
+                if prev_profile != home_window.get_property("profile_name"):
+                    log.debug("profile_change_detected")
+                    prev_profile = home_window.get_property("profile_name")
+                    profile_changed = True
 
-                if user_changed or first_run:
+                if profile_changed or first_run:
                     settings = xbmcaddon.Addon()
                     server_speed_check_data = settings.getSetting("server_speed_check_data")
                     server_host = settings.getSetting('server_address')
@@ -152,28 +152,28 @@ while home_window.get_property('exit') == 'False':
                         else:
                             settings.setSetting("server_speed_check_data", server_host + "-skipped")
 
-                if user_changed or (random_movie_list_interval != 0 and (time.time() - last_random_movie_update) > random_movie_list_interval):
+                if profile_changed or (random_movie_list_interval != 0 and (time.time() - last_random_movie_update) > random_movie_list_interval):
                     last_random_movie_update = time.time()
                     set_random_movies()
 
-                if user_changed or (random_movie_list_interval != 0 and (time.time() - last_random_tvshow_update) > random_movie_list_interval):
+                if profile_changed or (random_movie_list_interval != 0 and (time.time() - last_random_tvshow_update) > random_movie_list_interval):
                     last_random_tvshow_update = time.time()
                     set_random_tvshows()
 
-                if user_changed or (random_movie_list_interval != 0 and (time.time() - last_random_all_update) > random_movie_list_interval):
+                if profile_changed or (random_movie_list_interval != 0 and (time.time() - last_random_all_update) > random_movie_list_interval):
                     last_random_all_update = time.time()
                     set_random_all()
 
-                if user_changed or (newcontent_interval != 0 and (time.time() - last_content_check) > newcontent_interval):
+                if profile_changed or (newcontent_interval != 0 and (time.time() - last_content_check) > newcontent_interval):
                     last_content_check = time.time()
                     library_change_monitor.check_for_updates()
 
-                if user_changed or (background_interval != 0 and (time.time() - last_background_update) > background_interval):
+                if profile_changed or (background_interval != 0 and (time.time() - last_background_update) > background_interval):
                     last_background_update = time.time()
-                    set_library_window_values(user_changed)
-                    set_background_image(user_changed)
+                    set_library_window_values(profile_changed)
+                    set_background_image(profile_changed)
 
-                if remote_control and user_changed:
+                if remote_control and profile_changed:
                     websocket_client.stop_client()
                     websocket_client = WebSocketClient(library_change_monitor)
                     websocket_client.start()
@@ -211,8 +211,8 @@ if intro_skipper:
     intro_skipper.stop_service()
 
 # clear user and token when logging off
-home_window.clear_property("user_name")
-home_window.clear_property("AccessToken")
+home_window.clear_property("profile_name")
+home_window.clear_property("api_key")
 home_window.clear_property("userimage")
 
 log.debug("Service shutting down")

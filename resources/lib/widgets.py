@@ -11,10 +11,9 @@ import xbmcaddon
 import xbmcplugin
 import xbmcgui
 
-from .jellyfin import api
+from .valence import api
 from .utils import (
-    get_jellyfin_url, image_url, get_current_user_id,
-    get_art_url, get_default_filters
+    get_valence_url, get_art_url, get_default_filters
 )
 from .lazylogger import LazyLogger
 from .kodi_utils import HomeWindow
@@ -34,26 +33,31 @@ def set_random_movies():
     settings = xbmcaddon.Addon()
     item_limit = settings.getSetting("show_x_filtered_items")
     hide_watched = settings.getSetting("hide_watched") == "true"
-    user_id = get_current_user_id()
+
+    # Get all movie libraries
+    libraries = api.get_libraries()
+    movie_libs = [l for l in libraries if l.get('kind') == 'movies'] if libraries else []
+    if not movie_libs:
+        return
+    
+    lib_ids = ','.join([l['id'] for l in movie_libs])
 
     url_params = {}
-    url_params["Recursive"] = True
     url_params["limit"] = item_limit
     if hide_watched:
-        url_params["IsPlayed"] = False
-    url_params["SortBy"] = "Random"
-    url_params["IncludeItemTypes"] = "Movie"
-    url_params["ImageTypeLimit"] = 0
+        url_params["filters"] = "unplayed"
+    url_params["sort"] = "random"
+    url_params["libraryIds"] = lib_ids
 
-    url = get_jellyfin_url("/Users/{}/Items".format(user_id), url_params)
+    url = get_valence_url("/libraries/items", url_params)
 
     results = api.get(url)
 
     randon_movies_list = []
     if results is not None:
-        items = results.get("Items", [])
+        items = results.get("items", [])
         for item in items:
-            randon_movies_list.append(item.get("Id"))
+            randon_movies_list.append(item.get("id"))
 
     random.shuffle(randon_movies_list)
     movies_list_string = ",".join(randon_movies_list)
@@ -67,6 +71,7 @@ def set_random_movies():
     home_window.set_property("random-movies", movies_list_string)
     home_window.set_property("random-movies-changed", new_widget_hash)
 
+
 @timer
 def set_random_tvshows():
     log.debug("set_random_tvshows Called")
@@ -74,26 +79,30 @@ def set_random_tvshows():
     settings = xbmcaddon.Addon()
     item_limit = settings.getSetting("show_x_filtered_items")
     hide_watched = settings.getSetting("hide_watched") == "true"
-    user_id = get_current_user_id()
+
+    libraries = api.get_libraries()
+    show_libs = [l for l in libraries if l.get('kind') in ['shows', 'anime']] if libraries else []
+    if not show_libs:
+        return
+    
+    lib_ids = ','.join([l['id'] for l in show_libs])
 
     url_params = {}
-    url_params["Recursive"] = True
     url_params["limit"] = item_limit
     if hide_watched:
-            url_params["IsPlayed"] = False
-    url_params["SortBy"] = "Random"
-    url_params["IncludeItemTypes"] = "Series"
-    url_params["ImageTypeLimit"] = 0
+        url_params["filters"] = "unplayed"
+    url_params["sort"] = "random"
+    url_params["libraryIds"] = lib_ids
 
-    url = get_jellyfin_url("/Users/{}/Items".format(user_id), url_params)
+    url = get_valence_url("/libraries/shows", url_params)
 
     results = api.get(url)
 
     random_tvshows_list = []
     if results is not None:
-        items = results.get("Items", [])
+        items = results.get("shows", [])
         for item in items:
-            random_tvshows_list.append(item.get("Id"))
+            random_tvshows_list.append(item.get("id"))
 
     random.shuffle(random_tvshows_list)
     tvshow_list_string = ",".join(random_tvshows_list)
@@ -107,6 +116,7 @@ def set_random_tvshows():
     home_window.set_property("random-tvshows", tvshow_list_string)
     home_window.set_property("random-tvshows-changed", new_widget_hash)
 
+
 @timer
 def set_random_all():
     log.debug("set_random_all Called")
@@ -114,26 +124,29 @@ def set_random_all():
     settings = xbmcaddon.Addon()
     item_limit = settings.getSetting("show_x_filtered_items")
     hide_watched = settings.getSetting("hide_watched") == "true"
-    user_id = get_current_user_id()
+
+    libraries = api.get_libraries()
+    if not libraries:
+        return
+    
+    lib_ids = ','.join([l['id'] for l in libraries])
 
     url_params = {}
-    url_params["Recursive"] = True
     url_params["limit"] = item_limit
     if hide_watched:
-        url_params["IsPlayed"] = False
-    url_params["SortBy"] = "Random"
-    url_params["IncludeItemTypes"] = "Movie,Series"
-    url_params["ImageTypeLimit"] = 0
+        url_params["filters"] = "unplayed"
+    url_params["sort"] = "random"
+    url_params["libraryIds"] = lib_ids
 
-    url = get_jellyfin_url("/Users/{}/Items".format(user_id), url_params)
+    url = get_valence_url("/libraries/items", url_params)
 
     results = api.get(url)
 
     random_items = []
     if results is not None:
-        items = results.get("Items", [])
+        items = results.get("items", [])
         for item in items:
-            random_items.append(item.get("Id"))
+            random_items.append(item.get("id"))
 
     random.shuffle(random_items)
     item_list_string = ",".join(random_items)
@@ -147,6 +160,7 @@ def set_random_all():
     home_window.set_property("random-all", item_list_string)
     home_window.set_property("random-all-changed", new_widget_hash)
 
+
 def set_background_image(force=False):
     log.debug("set_background_image Called forced={0}".format(force))
 
@@ -155,7 +169,6 @@ def set_background_image(force=False):
 
     settings = xbmcaddon.Addon()
     server = settings.getSetting('server_address')
-    user_id = get_current_user_id()
 
     if force:
         background_current_item = 0
@@ -167,26 +180,30 @@ def set_background_image(force=False):
             len(background_items), background_current_item)
         )
 
-        url_params = {}
-        url_params["Recursive"] = True
-        url_params["limit"] = 100
-        url_params["SortBy"] = "Random"
-        url_params["IncludeItemTypes"] = "Movie,Series"
-        url_params["ImageTypeLimit"] = 1
+        libraries = api.get_libraries()
+        if not libraries:
+            return
+        
+        lib_ids = ','.join([l['id'] for l in libraries])
 
-        url = get_jellyfin_url('/Users/{}/Items'.format(user_id), url_params)
+        url_params = {}
+        url_params["limit"] = 100
+        url_params["sort"] = "random"
+        url_params["libraryIds"] = lib_ids
+
+        url = get_valence_url('/libraries/items', url_params)
 
         results = api.get(url)
 
         if results is not None:
-            items = results.get("Items", [])
+            items = results.get("items", [])
             background_current_item = 0
             background_items = []
             for item in items:
                 bg_image = get_art_url(
                     item, "Backdrop", server=server)
                 if bg_image:
-                    label = item.get("Name")
+                    label = item.get("title") or item.get("Name", "")
                     item_background = {}
                     item_background["image"] = bg_image
                     item_background["name"] = label
@@ -226,44 +243,47 @@ def check_for_new_content():
     if simple_new_content_check:
         log.debug("Using simple new content check")
         current_time_stamp = str(time.time())
-        home_window.set_property("jellycon_widget_reload", current_time_stamp)
+        home_window.set_property("valencecon_widget_reload", current_time_stamp)
         log.debug("Setting New Widget Hash: {0}".format(current_time_stamp))
         return
-    user_id = get_current_user_id()
 
+    # For Valence, check recently added and progress
+    libraries = api.get_libraries()
+    if not libraries:
+        return
+    
+    lib_ids = ','.join([l['id'] for l in libraries])
+
+    # Check latest added
     url_params = {}
-    url_params["Recursive"] = True
     url_params["limit"] = 1
-    url_params["Fields"] = "DateCreated,Etag"
-    url_params["SortBy"] = "DateCreated"
-    url_params["SortOrder"] = "Descending"
-    url_params["IncludeItemTypes"] = "Movie,Episode"
-    url_params["ImageTypeLimit"] = 0
+    url_params["sort"] = "addedAt"
+    url_params["sortOrder"] = "desc"
+    url_params["libraryIds"] = lib_ids
 
-    added_url = get_jellyfin_url('/Users/{}/Items'.format(user_id), url_params)
+    added_url = get_valence_url('/libraries/items', url_params)
 
     result = api.get(added_url)
     log.debug("LATEST_ADDED_ITEM: {0}".format(result))
 
     last_added_date = ""
     if result is not None:
-        items = result.get("Items", [])
+        items = result.get("items", [])
         if len(items) > 0:
             item = items[0]
-            last_added_date = item.get("Etag", "")
+            last_added_date = item.get("etag", "") or item.get("addedAt", "")
+
     log.debug("last_added_date: {0}".format(last_added_date))
 
+    # Check latest played
     url_params = {}
-    url_params["Recursive"] = True
     url_params["limit"] = 1
-    url_params["Fields"] = "DateCreated,Etag"
-    url_params["SortBy"] = "DatePlayed"
-    url_params["SortOrder"] = "Descending"
-    url_params["IncludeItemTypes"] = "Movie,Episode"
-    url_params["ImageTypeLimit"] = 0
+    url_params["sort"] = "datePlayed"
+    url_params["sortOrder"] = "desc"
+    url_params["libraryIds"] = lib_ids
 
-    played_url = get_jellyfin_url(
-        '/Users/{}/Items'.format(user_id), url_params
+    played_url = get_valence_url(
+        '/libraries/items', url_params
     )
 
     result = api.get(played_url)
@@ -271,16 +291,16 @@ def check_for_new_content():
 
     last_played_date = ""
     if result is not None:
-        items = result.get("Items", [])
+        items = result.get("items", [])
         if len(items) > 0:
             item = items[0]
-            user_data = item.get("UserData", None)
-            if user_data is not None:
-                last_played_date = user_data.get("LastPlayedDate", "")
+            progress = item.get("userProgress")
+            if progress:
+                last_played_date = progress.get("updatedAt", "")
 
     log.debug("last_played_date: {0}".format(last_played_date))
 
-    current_widget_hash = home_window.get_property("jellycon_widget_reload")
+    current_widget_hash = home_window.get_property("valencecon_widget_reload")
     log.debug("Current Widget Hash: {0}".format(current_widget_hash))
 
     m = hashlib.md5()
@@ -289,7 +309,7 @@ def check_for_new_content():
     log.debug("New Widget Hash: {0}".format(new_widget_hash))
 
     if current_widget_hash != new_widget_hash:
-        home_window.set_property("jellycon_widget_reload", new_widget_hash)
+        home_window.set_property("valencecon_widget_reload", new_widget_hash)
         log.debug("Setting New Widget Hash: {0}".format(new_widget_hash))
 
 
@@ -298,42 +318,37 @@ def get_widget_content_cast(handle, params):
     log.debug("getWigetContentCast Called: {0}".format(params))
     settings = xbmcaddon.Addon()
     server = settings.getSetting('server_address')
-    user_id = get_current_user_id()
 
     item_id = params["id"]
-    result = api.get(
-        "/Users/{}/Items/{}".format(user_id, item_id))
-    log.debug("ItemInfo: {0}".format(result))
+    media = api.get_media(item_id)
+    log.debug("ItemInfo: {0}".format(media))
 
-    if not result:
+    if not media:
         return
 
-    if (result.get("Type", "") in ["Episode", "Season"] and
+    if (media.get("type") in ["Episode", "Season"] and
             params.get("auto", "true") == "true"):
 
-        series_id = result.get("SeriesId")
+        series_id = media.get("seriesId")
         if series_id:
             params["id"] = series_id
             return get_widget_content_cast(handle, params)
 
     list_items = []
-    if result is not None:
-        people = result.get("People", [])
+    if media is not None:
+        cast = media.get("metadata", {}).get("cast", [])
     else:
-        people = []
+        cast = []
 
-    for person in people:
-        if person.get("Type") == "Actor":
-            person_name = person.get("Name")
-            person_role = person.get("Role")
-            person_id = person.get("Id")
-            person_tag = person.get("PrimaryImageTag")
+    for person in cast:
+        if person.get("type") == "Actor":
+            person_name = person.get("name")
+            person_role = person.get("role")
+            person_id = person.get("personId")
+            person_image = person.get("imageUrl")
             person_thumbnail = None
-            if person_tag:
-                person_thumbnail = image_url(
-                    person_id, "Primary", 0, 400, 400,
-                    person_tag, server=server
-                )
+            if person_image:
+                person_thumbnail = person_image
 
             list_item = xbmcgui.ListItem(label=person_name, offscreen=True)
 
@@ -380,217 +395,121 @@ def get_widget_content(handle, params):
     if widget_type is None:
         log.error("getWigetContent type not set")
         return
-    user_id = get_current_user_id()
+
+    libraries = api.get_libraries()
+    if not libraries:
+        return
+    
+    lib_ids = ','.join([l['id'] for l in libraries])
 
     log.debug("widget_type: {0}".format(widget_type))
 
-    url_verb = "/Users/{}/Items".format(user_id)
     url_params = {}
-    url_params["Limit"] = item_limit
-    url_params["Fields"] = get_default_filters()
-    url_params["ImageTypeLimit"] = 1
-    url_params["IsMissing"] = False
+    url_params["limit"] = item_limit
+    url_params["fields"] = get_default_filters()
+    url_params["libraryIds"] = lib_ids
 
     if widget_type == "recent_movies":
         xbmcplugin.setContent(handle, 'movies')
-        url_params["Recursive"] = True
-        url_params["SortBy"] = "DateCreated"
-        url_params["SortOrder"] = "Descending"
-        url_params["Filters"] = "IsNotFolder"
+        url_params["sort"] = "addedAt"
+        url_params["sortOrder"] = "desc"
+        url_params["filters"] = "notfolder"
         if hide_watched:
-            url_params["IsPlayed"] = False
-        url_params["IsVirtualUnaired"] = False
-        url_params["IncludeItemTypes"] = "Movie"
-        url_params["Limit"] = item_limit
+            url_params["filters"] = "unplayed"
+        url_params["kind"] = "movies"
 
     elif widget_type == "inprogress_movies":
         xbmcplugin.setContent(handle, 'movies')
-        url_params["Recursive"] = True
-        url_params["SortBy"] = "DatePlayed"
-        url_params["SortOrder"] = "Descending"
-        url_params["Filters"] = "IsResumable"
-        url_params["IsVirtualUnaired"] = False
-        url_params["IncludeItemTypes"] = "Movie"
-        url_params["Limit"] = item_limit
+        url_params["sort"] = "datePlayed"
+        url_params["sortOrder"] = "desc"
+        url_params["filters"] = "resumable"
+        url_params["kind"] = "movies"
 
     elif widget_type == "random_movies":
         home_window = HomeWindow()
         xbmcplugin.setContent(handle, 'movies')
-        url_params["Ids"] = home_window.get_property("random-movies")
+        url_params["ids"] = home_window.get_property("random-movies")
 
     elif widget_type == "random_tvshows":
         home_window = HomeWindow()
         xbmcplugin.setContent(handle, 'tvshows')
-        url_params["Ids"] = home_window.get_property("random-tvshows")
+        url_params["ids"] = home_window.get_property("random-tvshows")
 
     elif widget_type == "recent_tvshows":
         xbmcplugin.setContent(handle, 'episodes')
-        url_verb = '/Users/{}/Items/Latest'.format(user_id)
-        url_params["GroupItems"] = True
-        url_params["Limit"] = 45
-        url_params["Recursive"] = True
-        url_params["SortBy"] = "DateCreated"
-        url_params["SortOrder"] = "Descending"
-        url_params["Fields"] = get_default_filters()
+        url_params["sort"] = "addedAt"
+        url_params["sortOrder"] = "desc"
+        url_params["filters"] = "notfolder"
         if hide_watched:
-            url_params["IsPlayed"] = False
-        url_params["IsVirtualUnaired"] = False
-        url_params["IncludeItemTypes"] = "Episode"
-        url_params["ImageTypeLimit"] = 1
-        url_params["Limit"] = item_limit
+            url_params["filters"] = "unplayed"
+        url_params["kind"] = "shows"
+        url_params["type"] = "episode"
 
     elif widget_type == "recent_episodes":
         xbmcplugin.setContent(handle, 'episodes')
-        url_params["Recursive"] = True
-        url_params["SortBy"] = "DateCreated"
-        url_params["SortOrder"] = "Descending"
-        url_params["Filters"] = "IsNotFolder"
+        url_params["sort"] = "addedAt"
+        url_params["sortOrder"] = "desc"
+        url_params["filters"] = "notfolder"
         if hide_watched:
-            url_params["IsPlayed"] = False
-        url_params["IsVirtualUnaired"] = False
-        url_params["IncludeItemTypes"] = "Episode"
-        url_params["Limit"] = item_limit
+            url_params["filters"] = "unplayed"
+        url_params["type"] = "episode"
+        url_params["kind"] = "shows"
 
     elif widget_type == "inprogress_episodes":
         xbmcplugin.setContent(handle, 'episodes')
-        url_params["Recursive"] = True
-        url_params["SortBy"] = "DatePlayed"
-        url_params["SortOrder"] = "Descending"
-        url_params["Filters"] = "IsResumable"
-        url_params["IsVirtualUnaired"] = False
-        url_params["IncludeItemTypes"] = "Episode"
-        url_params["Limit"] = item_limit
+        url_params["sort"] = "datePlayed"
+        url_params["sortOrder"] = "desc"
+        url_params["filters"] = "resumable"
+        url_params["type"] = "episode"
+        url_params["kind"] = "shows"
 
     elif widget_type == "nextup_episodes":
         xbmcplugin.setContent(handle, 'episodes')
-        url_verb = "/Shows/NextUp"
-        url_params = url_params.copy()
-        url_params["Limit"] = item_limit
-        url_params["userid"] = user_id
-        url_params["Recursive"] = True
-        url_params["enableResumable"] = False
-        url_params["ImageTypeLimit"] = 1
-        # check if rewatching is enabled and combine is disabled
-        rewatch_days = int(settings.getSetting("rewatch_days"))
-        if rewatch_days > 0 and settings.getSetting("rewatch_combine") != "true":
-            rewatch_since = datetime.datetime.today() - datetime.timedelta(days=rewatch_days)
-            url_params["nextUpDateCutoff"] = rewatch_since.strftime("%Y-%m-%d")
-            url_params["enableRewatching"] = True
-        # Collect InProgress items to be combined with NextUp
-        inprogress_url_verb = "/Users/{}/Items".format(user_id)
-        inprogress_url_params = url_params.copy()
-        inprogress_url_params["Recursive"] = True
-        inprogress_url_params["SortBy"] = "DatePlayed"
-        inprogress_url_params["SortOrder"] = "Descending"
-        inprogress_url_params["Filters"] = "IsResumable"
-        inprogress_url_params["IsVirtualUnaired"] = False
-        inprogress_url_params["IncludeItemTypes"] = "Episode"
-        inprogress_url_params["Limit"] = item_limit
-
-
+        # Use /api/up-next endpoint
+        url = api.server + "/api/up-next"
+        params["name_format"] = "Episode|episode_name_format"
+        
+        list_items, detected_type, total_records = process_directory(
+            url, None, params, use_cached_widget_data)
+        
+        xbmcplugin.addDirectoryItems(handle, list_items)
+        xbmcplugin.endOfDirectory(handle, cacheToDisc=False)
+        return
 
     elif widget_type == "movie_recommendations":
-        suggested_items_url_params = {}
-        suggested_items_url_params["userId"] = user_id
-        suggested_items_url_params["categoryLimit"] = 15
-        suggested_items_url_params["ItemLimit"] = item_limit
-        suggested_items_url_params["ImageTypeLimit"] = 0
-        suggested_items_url = get_jellyfin_url(
-            "/Movies/Recommendations", suggested_items_url_params)
-
-        suggested_items = api.get(suggested_items_url)
-        ids = []
-        set_id = 0
-        while len(ids) < item_limit and suggested_items:
-            items = suggested_items[set_id]
-            log.debug(
-                "BaselineItemName : {0} - {1}".format(
-                    set_id, items.get("BaselineItemName")
-                )
-            )
-            items = items["Items"]
-            rand = random.randint(0, len(items) - 1)
-            item = items[rand]
-
-            if (item["Type"] == "Movie" and item["Id"] not in ids and
-                    (not item["UserData"]["Played"] or not hide_watched)):
-
-                ids.append(item["Id"])
-
-            del items[rand]
-            if len(items) == 0:
-                del suggested_items[set_id]
-            set_id += 1
-            if set_id >= len(suggested_items):
-                set_id = 0
-
-        id_list = ",".join(ids)
-        log.debug("Recommended Items : {0}".format(len(ids)))
-        url_params["Ids"] = id_list
+        # Valence doesn't have recommendations endpoint yet
+        xbmcgui.Dialog().ok("ValenceCon", "Movie recommendations not available for Valence yet")
+        return
 
     elif widget_type == "random_all":
         home_window = HomeWindow()
         xbmcplugin.setContent(handle, 'movies')
-        url_params["Ids"] = home_window.get_property("random-all")
+        url_params["ids"] = home_window.get_property("random-all")
 
     elif widget_type == "recent_all":
         xbmcplugin.setContent(handle, 'movies')
-        url_verb = '/Users/{}/Items/Latest'.format(user_id)
-        url_params["GroupItems"] = True
-        url_params["Recursive"] = True
-        url_params["SortBy"] = "DateCreated"
-        url_params["SortOrder"] = "Descending"
-        url_params["Limit"] = 45
-        url_params["Filters"] = "IsNotFolder"
-        url_params["Fields"] = get_default_filters()
+        url_params["sort"] = "addedAt"
+        url_params["sortOrder"] = "desc"
+        url_params["filters"] = "notfolder"
         if hide_watched:
-            url_params["IsPlayed"] = False
-        url_params["IsVirtualUnaired"] = False
-        url_params["IncludeItemTypes"] = "Episode, Movie"
-        url_params["ImageTypeLimit"] = 1
+            url_params["filters"] = "unplayed"
+        url_params["kind"] = "movies,shows"
+        url_params["type"] = "movie,episode"
 
     elif widget_type == "favorites_all":
-        home_window = HomeWindow()
         xbmcplugin.setContent(handle, 'movies')
+        url_params["filters"] = "favorite"
+        url_params["sort"] = "name"
+        url_params["sortOrder"] = "asc"
 
-        url_params.update({
-            "Filters": "IsFavorite",
-            "IncludeItemTypes": "Movie,Series",
-            "Recursive": True,
-            "SortBy": "Name",
-            "SortOrder": "Ascending",
-        })
+    items_url = get_valence_url('/libraries/items', url_params)
 
-    items_url = get_jellyfin_url(url_verb, url_params)
-
-    if (url_params.get('IncludeItemTypes', '') == 'Episode' or
+    if (url_params.get('type', '') == 'episode' or
             params.get('type', '') == 'nextup_episodes'):
         params["name_format"] = "Episode|episode_name_format"
 
     list_items, detected_type, total_records = process_directory(
         items_url, None, params, use_cached_widget_data)
-
-    # Combine In Progress and Next Up Episodes, add next up after In Progress
-    if widget_type == "nextup_episodes":
-        inprogress_url = get_jellyfin_url(
-            inprogress_url_verb, inprogress_url_params)
-
-        params["name_format"] = "Episode|episode_name_format"
-        inprogress, detected_type, total_records = process_directory(
-            inprogress_url, None, params, use_cached_widget_data)
-
-        list_items = inprogress + list_items
-
-        # add rewatch combine is enabled
-        if rewatch_days > 0 and settings.getSetting("rewatch_combine") == "true":
-            rewatch_since = datetime.datetime.today() - datetime.timedelta(days=rewatch_days)
-            url_params["nextUpDateCutoff"] = rewatch_since.strftime("%Y-%m-%d")
-            url_params["enableRewatching"] = True
-            rewatch_items_url = get_jellyfin_url(url_verb, url_params)
-            rewatch_items, detected_type, total_records = process_directory(rewatch_items_url, None, params, use_cached_widget_data)
-            for ri in rewatch_items:
-                if not any(i[1].getProperty("id") == ri[1].getProperty("id") for i in list_items):
-                    list_items.append(ri)
 
     if detected_type is not None:
         # if the media type is not set then try to use the detected type
@@ -603,7 +522,7 @@ def get_widget_content(handle, params):
             content_type = 'episodes'
         elif detected_type == "Series":
             content_type = 'tvshows'
-        elif detected_type in ["Music", "Audio", "Musicalbum"]:
+        elif detected_type in ["Music", "Audio", "MusicAlbum", "MusicTrack"]:
             content_type = 'songs'
 
         if content_type:

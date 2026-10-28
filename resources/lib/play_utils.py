@@ -16,10 +16,10 @@ import xbmcvfs
 import xbmcplugin
 from six.moves.urllib.parse import urlencode
 
-from .jellyfin import api
+from .valence import api
 from .lazylogger import LazyLogger
 from .dialogs import ResumeDialog
-from .utils import send_event_notification, convert_size, get_device_id, translate_string, load_user_details, translate_path, get_jellyfin_url, download_external_sub, get_bitrate
+from .utils import send_event_notification, convert_size, get_device_id, translate_string, load_user_details, translate_path, get_valence_url, download_external_sub, get_bitrate
 from .kodi_utils import HomeWindow
 from .datamanager import clear_old_cache_data
 from .item_functions import extract_item_info, add_gui_item, get_art
@@ -44,7 +44,7 @@ def play_all_files(items, play_items=True):
 
     for item in items:
 
-        item_id = item.get("Id")
+        item_id = item.get("id") or item.get("Id")
 
         # get playback info
         playback_info = get_item_playback_info(item_id, False)
@@ -55,7 +55,7 @@ def play_all_files(items, play_items=True):
             error_string = playback_info.get("ErrorCode")
             xbmcgui.Dialog().notification(translate_string(30316),
                                           error_string,
-                                          icon="special://home/addons/plugin.video.jellycon/icon.png")
+                                          icon="special://home/addons/plugin.video.valencecon/icon.png")
             return
 
         play_session_id = playback_info.get("PlaySessionId")
@@ -85,7 +85,7 @@ def play_all_files(items, play_items=True):
             item["Overview"] = playback_type_string
 
         # add title decoration is needed
-        item_title = item.get("Name", translate_string(30280))
+        item_title = item.get("Name") or item.get("title") or translate_string(30280)
         list_item = xbmcgui.ListItem(label=item_title)
 
         # add playurl and data to the monitor
@@ -121,12 +121,11 @@ def play_list_of_items(id_list):
     items = []
 
     for item_id in id_list:
-        url = "/Users/{}/Items/{}?format=json".format(api.user_id, item_id)
-        result = api.get(url)
-        if result is None:
+        media = api.get_media(item_id)
+        if media is None:
             log.debug("Playfile item was None, so can not play!")
             return
-        items.append(result)
+        items.append(media)
 
     return play_all_files(items)
 
@@ -139,9 +138,8 @@ def add_to_playlist(play_info):
 
     item_id = play_info.get("item_id")
 
-    url = "/Users/{}/Items/{}?format=json".format(api.user_id, item_id)
-    item = api.get(url)
-    if item is None:
+    media = api.get_media(item_id)
+    if media is None:
         log.debug("Playfile item was None, so can not play!")
         return
 
@@ -154,7 +152,7 @@ def add_to_playlist(play_info):
         error_string = playback_info.get("ErrorCode")
         xbmcgui.Dialog().notification(translate_string(30316),
                                       error_string,
-                                      icon="special://home/addons/plugin.video.jellycon/icon.png")
+                                      icon="special://home/addons/plugin.video.valencecon/icon.png")
         return
 
     play_session_id = playback_info.get("PlaySessionId")
@@ -178,13 +176,13 @@ def add_to_playlist(play_info):
         playback_type_string = "DirectStream"
 
     # add the playback type into the overview
-    if item.get("Overview", None) is not None:
-        item["Overview"] = playback_type_string + "\n" + item.get("Overview")
+    if media.get("Overview", None) is not None:
+        media["Overview"] = playback_type_string + "\n" + media.get("Overview")
     else:
-        item["Overview"] = playback_type_string
+        media["Overview"] = playback_type_string
 
     # add title decoration is needed
-    item_title = item.get("Name", translate_string(30280))
+    item_title = media.get("Name") or media.get("title") or translate_string(30280)
     list_item = xbmcgui.ListItem(label=item_title)
 
     # add playurl and data to the monitor
@@ -196,32 +194,22 @@ def add_to_playlist(play_info):
     data["play_action_type"] = "play_all"
 
     list_item.setPath(playurl)
-    list_item = set_list_item_props(item_id, list_item, item, server, listitem_props, item_title)
+    list_item = set_list_item_props(item_id, list_item, media, server, listitem_props, item_title)
 
     playlist.add(playurl, list_item)
 
 
 def get_playback_intros(item_id):
     log.debug("get_playback_intros")
-    url = "/Users/{}/Items/{}/Intros".format(api.user_id, item_id)
-    intro_items = api.get(url)
-
-    if intro_items is None:
-        log.debug("get_playback_intros failed!")
-        return
-
-    into_list = []
-    intro_items = intro_items["Items"]
-    for into in intro_items:
-        into_list.append(into)
-
-    return into_list
+    # Valence doesn't have intros endpoint like Jellyfin
+    # This could be implemented via Valence's segments/chapters API
+    return []
 
 
 @timer
 def play_file(play_info):
     """
-    If a jellycon item is already playing, report it's playback has stopped
+    If a valencecon item is already playing, report it's playback has stopped
     to the server to preserve accurate tracking
     """
     if xbmc.Player().isPlaying():
@@ -261,13 +249,13 @@ def play_file(play_info):
 
     server = settings.getSetting('server_address')
 
-    url = "/Users/{}/Items/{}?format=json".format(api.user_id, item_id)
-    result = api.get(url)
-    log.debug("Playfile item: {0}".format(result))
-
-    if result is None:
+    # Get media details
+    media = api.get_media(item_id)
+    if media is None:
         log.debug("Playfile item was None, so can not play!")
         return
+
+    log.debug("Playfile item: {0}".format(media))
 
     # Generate an instant mix based on the item
     if action == 'instant_mix':
@@ -280,12 +268,11 @@ def play_file(play_info):
             'SortBy': 'SortName',
             'limit': max_queue
         }
-        url = get_jellyfin_url(url_root, url_params)
+        url = get_valence_url(url_root, url_params)
         result = api.get(url)
         log.debug("PlayAllFiles items: {0}".format(result))
 
-        # process each item
-        items = result["Items"]
+        items = result.get("Items", [])
         if items is None:
             items = []
         return play_all_files(items)
@@ -295,7 +282,7 @@ def play_file(play_info):
     *all* items in that parent.
     * Taking the max queue size setting into account
     '''
-    if result.get("Type") in ["Season", "Series", "MusicArtist", "MusicAlbum",
+    if media.get("Type") in ["Season", "Series", "MusicArtist", "MusicAlbum",
                               "Playlist", "CollectionFolder", "MusicGenre"]:
         max_queue = int(settings.getSetting('max_play_queue'))
         log.debug("PlayAllFiles for parent item id: {0}".format(item_id))
@@ -308,7 +295,7 @@ def play_file(play_info):
             'SortBy': 'SortName',
             'limit': max_queue
         }
-        if result.get("Type") == "MusicGenre":
+        if media.get("Type") == "MusicGenre":
             url_params['genreIds'] = item_id
         else:
             url_params['ParentId'] = item_id
@@ -316,28 +303,25 @@ def play_file(play_info):
         if action == 'shuffle':
             url_params['SortBy'] = 'Random'
 
-        url = get_jellyfin_url(url_root, url_params)
+        url = get_valence_url(url_root, url_params)
         result = api.get(url)
         log.debug("PlayAllFiles items: {0}".format(result))
 
-        # process each item
-        items = result["Items"]
+        items = result.get("Items", [])
         if items is None:
             items = []
         return play_all_files(items)
 
     # if this is a program from live tv epg then play the actual channel
-    if result.get("Type") == "Program":
-        channel_id = result.get("ChannelId")
-        url = "/Users/{}/Items/{}?format=json".format(api.user_id, channel_id)
-        result = api.get(url)
-        item_id = result["Id"]
-    elif result.get('Type') == "TvChannel":
-        channel_id = result.get("Id")
-        url = "/Users/{}/Items/{}?format=json".format(api.user_id, channel_id)
-        result = api.get(url)
-        item_id = result["Id"]
-    elif result.get("Type") == "Photo":
+    if media.get("Type") == "Program":
+        channel_id = media.get("ChannelId")
+        channel = api.get_media(channel_id)
+        if channel:
+            item_id = channel["Id"]
+            media = channel
+    elif media.get('Type') == "LiveChannel":
+        channel_id = media.get("Id")
+    elif media.get("Type") == "Photo":
         play_url = "%s/Items/%s/Images/Primary"
         play_url = play_url % (server, item_id)
 
@@ -356,7 +340,7 @@ def play_file(play_info):
         error_string = playback_info.get("ErrorCode")
         xbmcgui.Dialog().notification(translate_string(30316),
                                       error_string,
-                                      icon="special://home/addons/plugin.video.jellycon/icon.png")
+                                      icon="special://home/addons/plugin.video.valencecon/icon.png")
         return
 
     play_session_id = playback_info.get("PlaySessionId")
@@ -405,16 +389,16 @@ def play_file(play_info):
         seek_time = (auto_resume / 1000) / 10000
 
     elif force_auto_resume:
-        user_data = result.get("UserData")
+        user_data = media.get("UserData")
         reasonable_ticks = int(user_data.get("PlaybackPositionTicks")) / 1000
         seek_time = reasonable_ticks / 10000
 
     else:
-        user_data = result.get("UserData")
+        user_data = media.get("UserData")
         if user_data.get("PlaybackPositionTicks") != 0:
 
             reasonable_ticks = int(user_data.get("PlaybackPositionTicks")) / 1000
-            seek_time = round(reasonable_ticks / 10000,0)
+            seek_time = round(reasonable_ticks / 10000, 0)
             display_time = (datetime.datetime(1,1,1) + datetime.timedelta(seconds=seek_time)).strftime('%H:%M:%S')
 
             resume_dialog = ResumeDialog("ResumeDialog.xml", addon_path, "default", "720p")
@@ -443,20 +427,20 @@ def play_file(play_info):
         playback_type_string = "DirectStream"
 
     # add the playback type into the overview
-    if result.get("Overview", None) is not None:
-        result["Overview"] = playback_type_string + "\n" + result.get("Overview")
+    if media.get("Overview", None) is not None:
+        media["Overview"] = playback_type_string + "\n" + media.get("Overview")
     else:
-        result["Overview"] = playback_type_string
+        media["Overview"] = playback_type_string
 
     # add title decoration is needed
-    item_title = result.get("Name", translate_string(30280))
+    item_title = media.get("Name") or media.get("title") or translate_string(30280)
 
     # extract item info from result
     gui_options = {}
     gui_options["server"] = server
     gui_options["name_format"] = None
     gui_options["name_format_type"] = ""
-    item_details = extract_item_info(result, gui_options)
+    item_details = extract_item_info(media, gui_options)
 
     # create ListItem
     display_options = {}
@@ -483,17 +467,17 @@ def play_file(play_info):
     data["playback_type"] = playback_type_string
     data["play_session_id"] = play_session_id
     data["play_action_type"] = "play"
-    data["item_type"] = result.get("Type", None)
-    data["can_delete"] = result.get("CanDelete", False)
+    data["item_type"] = media.get("Type", None)
+    data["can_delete"] = media.get("CanDelete", False)
 
     # Check for next episodes
-    if result.get('Type') == 'Episode':
-        next_episode = get_next_episode(result)
+    if media.get('Type') == 'Episode':
+        next_episode = get_next_episode(media)
         data["next_episode"] = next_episode
-        send_next_episode_details(result, next_episode)
+        send_next_episode_details(media, next_episode)
 
     # We need the livestream id to properly delete encodings
-    if result.get("Type", "") in ["Program", "TvChannel"]:
+    if media.get("Type", "") in ["Program", "LiveChannel"]:
         for media_source in media_sources:
             livestream_id = media_source.get("LiveStreamId")
             data["livestream_id"] = livestream_id
@@ -503,7 +487,7 @@ def play_file(play_info):
     home_window.set_property('now_playing', json.dumps(data))
 
     list_item.setPath(playurl)
-    list_item = set_list_item_props(item_id, list_item, result, server, listitem_props, item_title)
+    list_item = set_list_item_props(item_id, list_item, media, server, listitem_props, item_title)
 
     player = xbmc.Player()
 
@@ -567,7 +551,7 @@ def play_file(play_info):
             while bool(xbmc.getCondVisibility("Player.Paused")) and count < 10:
                 log.info("PlaybackResumrAction : Unpausing playback")
                 player.pause()
-                xbmc.sleep(1000)
+                xbmc.sleep(100)
                 count = count + 1
 
             if count == 10:
@@ -606,8 +590,8 @@ def get_next_episode(item):
         log.debug("Not an episode, can not get next")
         return None
 
-    parent_id = item.get("ParentId")
-    item_index = item.get("IndexNumber")
+    parent_id = item.get("ParentId") or item.get("seriesId")
+    item_index = item.get("IndexNumber") or item.get("episodeNumber")
 
     if parent_id is None:
         log.debug("No parent id, can not get next")
@@ -716,12 +700,12 @@ def set_list_item_props(item_id, list_item, result, server, extra_props, title):
 
     list_item.setProperty('IsPlayable', 'false')
     list_item.setProperty('IsFolder', 'false')
-    list_item.setProperty('id', result.get("Id"))
+    list_item.setProperty('id', result.get("Id") or result.get("id"))
 
     for prop in extra_props:
         list_item.setProperty(prop[0], prop[1])
 
-    item_type = result.get("Type", "").lower()
+    item_type = (result.get("Type") or result.get("type") or "").lower()
     mediatype = 'video'
 
     if item_type == 'movie' or item_type == 'boxset':
@@ -793,7 +777,7 @@ def set_list_item_props(item_id, list_item, result, server, extra_props, title):
                 season_number = result.get("IndexNumber", -1)
                 video_tag.setSeason(season_number)
 
-            video_tag.setPlotOutline("jellyfin_id:%s" % (item_id,))
+            video_tag.setPlotOutline("valence_id:%s" % (item_id,))
         else:
             # Kodi 19
             details = {
@@ -812,7 +796,7 @@ def set_list_item_props(item_id, list_item, result, server, extra_props, title):
                 season_number = result.get("IndexNumber", -1)
                 details["season"] = str(season_number)
 
-            details["plotoutline"] = "jellyfin_id:%s" % (item_id,)
+            details["plotoutline"] = "valence_id:%s" % (item_id,)
 
             list_item.setInfo("Video", infoLabels=details)
 
@@ -1036,26 +1020,16 @@ def send_progress():
 
     volume, muted = get_volume()
 
-    postdata = {
-        'QueueableMediaTypes': "Video",
-        'CanSeek': True,
-        'ItemId': item_id,
-        'MediaSourceId': source_id,
-        'PositionTicks': ticks,
-        'RunTimeTicks': duration,
-        'IsPaused': paused,
-        'IsMuted': muted,
-        'PlayMethod': playback_type,
-        'PlaySessionId': play_session_id,
-        'PlaylistIndex': playlist_position,
-        'PlaylistLength': playlist_size,
-        'VolumeLevel': volume
+    # Report to Valence progress endpoint
+    payload = {
+        'mediaId': item_id,
+        'positionSeconds': play_time,
+        'durationSeconds': total_play_time,
+        'isFinished': False
     }
-
-    log.debug("Sending POST progress started: {0}".format(postdata))
-
-    url = "/Sessions/Playing/Progress"
-    api.post(url, postdata)
+    
+    log.debug("Sending Valence progress: {0}".format(payload))
+    api.report_progress(item_id, play_time, total_play_time, False)
 
 
 def get_volume():
@@ -1120,7 +1094,7 @@ def prompt_for_stop_actions(item_id, data):
                 "auto_resume": "-1",
                 "force_transcode": False
             }
-            send_event_notification("jellycon_play_action", play_info)
+            send_event_notification("valencecon_play_action", play_info)
 
 
 def stop_all_playback():
@@ -1149,13 +1123,13 @@ def stop_all_playback():
             log.debug("item_data: {0}".format(data))
 
             current_position = data.get("current_position", 0)
-            jellyfin_item_id = data.get("item_id")
+            valence_item_id = data.get("item_id")
             report_stopped_playback(data)
-            if jellyfin_item_id is not None and current_position >= 0:
+            if valence_item_id is not None and current_position >= 0:
                 data["currently_playing"] = False
 
                 if data.get("play_action_type", "") == "play":
-                    prompt_for_stop_actions(jellyfin_item_id, data)
+                    prompt_for_stop_actions(valence_item_id, data)
 
                 clear_entries.append(item)
 
@@ -1178,7 +1152,7 @@ def get_playing_data():
     try:
         play_data = json.loads(play_data_string)
     except ValueError:
-        # This isn't a JellyCon item
+        # This isn't a ValenceCon item
         return {}
 
     played_information_string = home_window.get_property('played_information')
@@ -1222,113 +1196,104 @@ def get_playing_data():
     return {}
 
 
+def get_item_playback_info(item_id, force_transcode=False):
+    """Get playback info for an item by starting a playback session"""
+    # Build device profile for Valence
+    device_profile = {
+        "schemaVersion": 1,
+        "id": get_device_id(),
+        "name": "Kodi ValenceCon",
+        "maxWidth": int(settings.getSetting("playback_max_width")),
+        "maxHeight": int(settings.getSetting("playback_max_width")) * 9 // 16,
+        "maxAudioChannels": int(settings.getSetting("audio_max_channels")),
+        "supportedVideoRanges": ["SDR", "HDR10", "DolbyVision"],
+        "supportedSubtitleFormats": ["srt", "webvtt", "ass", "vobsub", "pgs"],
+        "directPlayProfiles": [
+            {
+                "container": "mkv",
+                "videoCodecs": ["hevc", "h264", "av1", "mpeg2", "vc1"],
+                "audioCodecs": ["aac", "ac3", "eac3", "dts", "truehd", "flac", "opus", "mp3"]
+            },
+            {
+                "container": "mp4",
+                "videoCodecs": ["hevc", "h264", "av1", "mpeg2"],
+                "audioCodecs": ["aac", "ac3", "eac3", "mp3"]
+            }
+        ],
+        "transcodingProfiles": [
+            {
+                "protocol": "hls",
+                "container": "ts",
+                "videoCodec": "h264",
+                "videoProfile": "high",
+                "audioCodec": "aac",
+                "audioProfile": "lc",
+                "audioChannels": 6
+            }
+        ]
+    }
+    
+    if settings.getSetting("playback_video_force_8") == "true":
+        device_profile["maxVideoBitDepth"] = 8
+
+    # Start playback session
+    session = api.start_playback_session(item_id, device_profile)
+    
+    if not session:
+        return None
+    
+    # Convert Valence session response to compatible format
+    # Valence returns: delivery.manifestUrl (HLS), mode (DirectPlay/Transcode/Remux)
+    media_sources = []
+    
+    delivery = session.get("delivery", {})
+    manifest_url = delivery.get("manifestUrl")
+    mode = session.get("mode", "Transcode")
+    plan = session.get("plan", {})
+    
+    if manifest_url:
+        # Build full URL
+        base_url = settings.getSetting('server_address').rstrip('/')
+        full_manifest_url = base_url + manifest_url
+        
+        media_sources.append({
+            "Id": item_id,
+            "Name": "HLS Stream",
+            "Path": full_manifest_url,
+            "Container": "hls",
+            "SupportsDirectPlay": mode == "DirectPlay",
+            "SupportsDirectStream": mode == "DirectStream",
+            "SupportsTranscoding": mode == "Transcode",
+            "MediaStreams": [],  # Would need to fetch from media details
+        })
+    
+    return {
+        "PlaySessionId": session.get("sessionId") or session.get("id"),
+        "MediaSources": media_sources,
+        "ErrorCode": None
+    }
+
+
 def get_play_url(media_source, play_session_id, channel_id=None):
     log.debug("get_play_url - media_source: {0}", media_source)
 
-    # check if strm file Container
-    if media_source.get('Container') == 'strm':
-        log.debug("Detected STRM Container")
-        playurl, listitem_props = get_strm_details(media_source)
-        if playurl is None:
-            log.debug("Error, no strm content")
-            return None, None, None
-        else:
-            return playurl, "0", listitem_props
-
-    # get all the options
-    server = settings.getSetting('server_address')
-    allow_direct_file_play = settings.getSetting('allow_direct_file_play') == 'true'
-
-    can_direct_play = media_source["SupportsDirectPlay"]
-    can_direct_stream = media_source["SupportsDirectStream"]
-    can_transcode = media_source["SupportsTranscoding"]
-
-    playurl = None
+    # Valence uses HLS manifest URL from session
+    playurl = media_source.get("Path")
     playback_type = None
 
-    # check if file can be directly played
-    if allow_direct_file_play and can_direct_play:
-        direct_path = media_source["Path"]
-        direct_path = direct_path.replace("\\", "/")
-        direct_path = direct_path.strip()
+    # Determine playback type from media source
+    supports_direct_play = media_source.get("SupportsDirectPlay", False)
+    supports_direct_stream = media_source.get("SupportsDirectStream", False)
+    supports_transcode = media_source.get("SupportsTranscoding", False)
 
-        # handle DVD structure
-        container = media_source["Container"]
-        if container == "dvd":
-            direct_path = direct_path + "/VIDEO_TS/VIDEO_TS.IFO"
-        elif container == "bluray":
-            direct_path = direct_path + "/BDMV/index.bdmv"
-
-        if direct_path.startswith("//"):
-            direct_path = "smb://" + direct_path[2:]
-
-        log.debug("playback_direct_path: {0}".format(direct_path))
-
-        if xbmcvfs.exists(direct_path):
-            playurl = direct_path
-            playback_type = "0"
-
-    # check if file can be direct streamed/played
-    if (can_direct_stream or can_direct_play) and playurl is None:
-        item_id = media_source.get('Id')
-        if channel_id:
-            # live tv has to be transcoded by the server
-            playurl = None
-        else:
-            url_root = '{}/Videos/{}/stream'.format(server, item_id)
-            play_params = {
-                'static': True,
-                'PlaySessionId': play_session_id,
-                'MediaSourceId': item_id,
-            }
-            play_param_string = urlencode(play_params)
-            playurl = '{}?{}'.format(url_root, play_param_string)
+    if supports_direct_play:
+        playback_type = "0"
+    elif supports_direct_stream:
         playback_type = "1"
-
-    # check is file can be transcoded
-    if can_transcode and playurl is None:
-        item_id = media_source.get('Id')
-        device_id = get_device_id()
-
-        user_details = load_user_details()
-        user_token = user_details.get('token')
-        bitrate = get_bitrate(settings.getSetting("force_max_stream_bitrate"))
-        playback_max_width = settings.getSetting("playback_max_width")
-        audio_codec = settings.getSetting("audio_codec")
-        audio_playback_bitrate = settings.getSetting("audio_playback_bitrate")
-        audio_bitrate = int(audio_playback_bitrate) * 1000
-        audio_max_channels = settings.getSetting("audio_max_channels")
-        playback_video_force_8 = settings.getSetting("playback_video_force_8") == "true"
-
-        transcode_params = {
-            "MediaSourceId": item_id,
-            "DeviceId": device_id,
-            "PlaySessionId": play_session_id,
-            "ApiKey": user_token,
-            "SegmentContainer": "ts",
-            "VideoCodec": "h264",
-            "VideoBitrate": bitrate,
-            "MaxWidth": playback_max_width,
-            "AudioCodec": audio_codec,
-            "TranscodingMaxAudioChannels": audio_max_channels,
-            "AudioBitrate": audio_bitrate
-        }
-        if playback_video_force_8:
-            transcode_params.update({"MaxVideoBitDepth": "8"})
-
-        # We need to include the channel ID if this is a live stream
-        if channel_id:
-            if media_source.get('LiveStreamId'):
-                transcode_params['LiveStreamId'] = media_source.get('LiveStreamId')
-            transcode_path = urlencode(transcode_params)
-            playurl = '{}/Videos/{}/master.m3u8?{}'.format(
-                server, channel_id, transcode_path)
-        else:
-            transcode_path = urlencode(transcode_params)
-            playurl = '{}/Videos/{}/master.m3u8?{}'.format(
-                server, item_id, transcode_path)
-
+    elif supports_transcode:
         playback_type = "2"
+    else:
+        playback_type = "2"  # Default to transcode
 
     return playurl, playback_type, []
 
@@ -1388,382 +1353,52 @@ class Service(xbmc.Player):
         play_data["paused"] = False
         play_data["currently_playing"] = True
 
-        jellyfin_item_id = play_data["item_id"]
-        jellyfin_source_id = play_data["source_id"]
-        playback_type = play_data["playback_type"]
-        play_session_id = play_data["play_session_id"]
-
-        # if we could not find the ID of the current item then return
-        if jellyfin_item_id is None:
-            return
-
+        valence_item_id = play_data["item_id"]
         home_window = HomeWindow()
+        home_window.set_property('currently_playing_id', valence_item_id)
+        home_window.set_property('now_playing', json.dumps(play_data))
+
         played_information_string = home_window.get_property('played_information')
-        played_information = json.loads(played_information_string)
-        played_information[jellyfin_item_id] = play_data
+        if played_information_string:
+            played_information = json.loads(played_information_string)
+        else:
+            played_information = {}
+
+        played_information[valence_item_id] = play_data
         home_window.set_property('played_information', json.dumps(played_information))
 
-        log.debug("Sending Playback Started")
-        postdata = {
-            'QueueableMediaTypes': "Video",
-            'CanSeek': True,
-            'ItemId': jellyfin_item_id,
-            'MediaSourceId': jellyfin_source_id,
-            'PlayMethod': playback_type,
-            'PlaySessionId': play_session_id
-        }
-
-        log.debug("Sending POST play started: {0}".format(postdata))
-
-        url = "/Sessions/Playing"
-        api.post(url, postdata)
-
-        home_screen = HomeWindow()
-        home_screen.set_property("currently_playing_id", str(jellyfin_item_id))
-
-    def onPlayBackEnded(self):
-        # Will be called when kodi stops playing a file
-        log.debug("onPlayBackEnded")
-        stop_all_playback()
+        log.debug("Playback started for item: {0}".format(valence_item_id))
 
     def onPlayBackStopped(self):
-        # Will be called when user stops kodi playing a file
         log.debug("onPlayBackStopped")
         stop_all_playback()
 
     def onPlayBackPaused(self):
-        # Will be called when kodi pauses the video
-        log.debug("onPlayBackPaused")
-
         play_data = get_playing_data()
-
-        if play_data is not None:
-            play_data['paused'] = True
-            send_progress()
+        if play_data:
+            play_data["paused"] = True
+            home_window = HomeWindow()
+            home_window.set_property('now_playing', json.dumps(play_data))
 
     def onPlayBackResumed(self):
-        # Will be called when kodi resumes the video
-        log.debug("onPlayBackResumed")
-
         play_data = get_playing_data()
-
-        if play_data is not None:
-            play_data['paused'] = False
-            send_progress()
-
-    def onPlayBackSeek(self, time, seek_offset):
-        # Will be called when kodi seeks in video
-        log.debug("onPlayBackSeek")
-        send_progress()
-
-
-class PlaybackService(xbmc.Monitor):
-    background_image_cache_thread = None
-
-    def __init__(self, monitor):
-        self.monitor = monitor
-
-    def onNotification(self, sender, method, data):
-        if method == 'GUI.OnScreensaverActivated':
-            self.screensaver_activated()
-            return
-        elif method == 'GUI.OnScreensaverDeactivated':
-            self.screensaver_deactivated()
-            return
-        elif method == 'System.OnQuit':
+        if play_data:
+            play_data["paused"] = False
             home_window = HomeWindow()
-            home_window.set_property('exit', 'True')
-            return
+            home_window.set_property('now_playing', json.dumps(play_data))
 
-        if sender.lower() not in (
-            'plugin.video.jellycon', 'xbmc', 'upnextprovider.signal'
-        ):
-            return
+    def onPlayBackEnded(self):
+        log.debug("onPlayBackEnded")
+        play_data = get_playing_data()
+        if play_data:
+            item_id = play_data.get("item_id")
+            if item_id:
+                # Report finished progress
+                api.report_progress(item_id, play_data.get("duration", 0), play_data.get("duration", 0), True)
+        stop_all_playback()
 
+    def onPlayBackSeek(self, time, seekOffset):
+        log.debug("onPlayBackSeek: time={0}, seekOffset={1}".format(time, seekOffset))
 
-        signal = method.split('.', 1)[-1]
-        if signal not in (
-            "jellycon_play_action", "jellycon_play_youtube_trailer_action",
-            "set_view", "plugin.video.jellycon_play_action"):
-            return
-
-        data_json = json.loads(data)
-        if sender.lower() == "upnextprovider.signal":
-            play_info = json.loads(binascii.unhexlify(data_json[0]))
-        else:
-            play_info = data_json[0]
-
-        log.debug("PlaybackService:onNotification:{0}".format(play_info))
-
-        if signal in (
-            "jellycon_play_action", "plugin.video.jellycon_play_action"
-        ):
-            play_file(play_info)
-        elif signal == "jellycon_play_youtube_trailer_action":
-            trailer_link = play_info["url"]
-            xbmc.executebuiltin(trailer_link)
-        elif signal == "set_view":
-            view_id = play_info["view_id"]
-            log.debug("Setting view id: {0}".format(view_id))
-            xbmc.executebuiltin("Container.SetViewMode(%s)" % int(view_id))
-
-    def screensaver_activated(self):
-        log.debug("Screen Saver Activated")
-
-        home_screen = HomeWindow()
-        home_screen.clear_property("skip_select_user")
-
-        stop_playback = settings.getSetting("stopPlaybackOnScreensaver") == 'true'
-
-        if stop_playback:
-            player = xbmc.Player()
-            if player.isPlayingVideo():
-                log.debug("Screen Saver Activated : isPlayingVideo() = true")
-                play_data = get_playing_data()
-                if play_data:
-                    log.debug("Screen Saver Activated : this is an JellyCon item so stop it")
-                    player.stop()
-
-        clear_old_cache_data()
-
-        cache_images = settings.getSetting('cacheImagesOnScreenSaver') == 'true'
-        if cache_images:
-            self.background_image_cache_thread = CacheArtwork()
-            self.background_image_cache_thread.start()
-
-    def screensaver_deactivated(self):
-        log.debug("Screen Saver Deactivated")
-
-        if self.background_image_cache_thread:
-            self.background_image_cache_thread.stop_activity()
-            self.background_image_cache_thread = None
-
-        show_change_user = settings.getSetting('changeUserOnScreenSaver') == 'true'
-        if show_change_user:
-            home_screen = HomeWindow()
-            skip_select_user = home_screen.get_property("skip_select_user")
-            if skip_select_user is not None and skip_select_user == "true":
-                return
-            xbmc.executebuiltin("RunScript(plugin.video.jellycon,0,?mode=CHANGE_USER)")
-
-
-def get_item_playback_info(item_id, force_transcode):
-
-    filtered_codecs = []
-    if settings.getSetting("force_transcode_h265") == "true":
-        filtered_codecs.append("hevc")
-        filtered_codecs.append("h265")
-    if settings.getSetting("force_transcode_mpeg2") == "true":
-        filtered_codecs.append("mpeg2video")
-    if settings.getSetting("force_transcode_msmpeg4v3") == "true":
-        filtered_codecs.append("msmpeg4v3")
-    if settings.getSetting("force_transcode_mpeg4") == "true":
-        filtered_codecs.append("mpeg4")
-    if settings.getSetting("force_transcode_av1") == "true":
-        filtered_codecs.append("av1")
-
-    if not force_transcode:
-        bitrate = get_bitrate(settings.getSetting("max_stream_bitrate"))
-    else:
-        bitrate = get_bitrate(settings.getSetting("force_max_stream_bitrate"))
-
-    audio_codec = settings.getSetting("audio_codec")
-    audio_playback_bitrate = settings.getSetting("audio_playback_bitrate")
-    audio_max_channels = settings.getSetting("audio_max_channels")
-
-    audio_bitrate = int(audio_playback_bitrate) * 1000
-
-    profile = {
-        "Name": "Kodi",
-        "MaxStaticBitrate": bitrate,
-        "MaxStreamingBitrate": bitrate,
-        "MusicStreamingTranscodingBitrate": audio_bitrate,
-        "TimelineOffsetSeconds": 5,
-        "TranscodingProfiles": [
-            {
-                "Type": "Audio"
-            },
-            {
-                "Container": "ts",
-                "Protocol": "hls",
-                "Type": "Video",
-                "AudioCodec": audio_codec,
-                "VideoCodec": "h264",
-                "MaxAudioChannels": audio_max_channels
-            },
-            {
-                "Container": "jpeg",
-                "Type": "Photo"
-            }
-        ],
-        "DirectPlayProfiles": [
-            {
-                "Type": "Video"
-            },
-            {
-                "Type": "Audio"
-            },
-            {
-                "Type": "Photo"
-            }
-        ],
-        "ResponseProfiles": [],
-        "ContainerProfiles": [],
-        "CodecProfiles": [],
-        "SubtitleProfiles": [
-            {
-                "Format": "srt",
-                "Method": "External"
-            },
-            {
-                "Format": "srt",
-                "Method": "Embed"
-            },
-            {
-                "Format": "ass",
-                "Method": "External"
-            },
-            {
-                "Format": "ass",
-                "Method": "Embed"
-            },
-            {
-                "Format": "sub",
-                "Method": "Embed"
-            },
-            {
-                "Format": "sub",
-                "Method": "External"
-            },
-            {
-                "Format": "ssa",
-                "Method": "Embed"
-            },
-            {
-                "Format": "ssa",
-                "Method": "External"
-            },
-            {
-                "Format": "smi",
-                "Method": "Embed"
-            },
-            {
-                "Format": "smi",
-                "Method": "External"
-            },
-            {
-                "Format": "pgssub",
-                "Method": "Embed"
-            },
-            {
-                "Format": "pgssub",
-                "Method": "External"
-            },
-            {
-                "Format": "dvdsub",
-                "Method": "Embed"
-            },
-            {
-                "Format": "dvdsub",
-                "Method": "External"
-            },
-            {
-                "Format": "pgs",
-                "Method": "Embed"
-            },
-            {
-                "Format": "pgs",
-                "Method": "External"
-            }
-        ]
-    }
-
-    if len(filtered_codecs) > 0:
-        profile['DirectPlayProfiles'][0]['VideoCodec'] = "-%s" % ",".join(filtered_codecs)
-
-    if force_transcode:
-        profile['DirectPlayProfiles'] = []
-
-    if settings.getSetting("playback_video_force_8") == "true":
-        profile['CodecProfiles'].append(
-            {
-                "Type": "Video",
-                "Codec": "h264",
-                "Conditions": [
-                    {
-                        "Condition": "LessThanEqual",
-                        "Property": "VideoBitDepth",
-                        "Value": "8",
-                        "IsRequired": False
-                    }
-                ]
-            }
-        )
-        profile['CodecProfiles'].append(
-            {
-                "Type": "Video",
-                "Codec": "h265,hevc",
-                "Conditions": [
-                    {
-                        "Condition": "EqualsAny",
-                        "Property": "VideoProfile",
-                        "Value": "main"
-                    }
-                ]
-            }
-        )
-
-    playback_info = {
-        'UserId': api.user_id,
-        'DeviceProfile': profile,
-        'AutoOpenLiveStream': True
-    }
-
-    if force_transcode:
-        url = "/Items/%s/PlaybackInfo?MaxStreamingBitrate=%s&EnableDirectPlay=false&EnableDirectStream=false" % (item_id, bitrate)
-    else:
-        url = "/Items/%s/PlaybackInfo?MaxStreamingBitrate=%s" % (item_id, bitrate)
-
-    log.debug("PlaybackInfo : {0}".format(url))
-    log.debug("PlaybackInfo : {0}".format(profile))
-    play_info_result = api.post(url, playback_info)
-    log.debug("PlaybackInfo : {0}".format(play_info_result))
-
-    return play_info_result
-
-
-def get_media_segments(item_id):
-    url = "/MediaSegments/{}".format(item_id)
-    result = api.get(url)
-    if result is None or result["Items"] is None:
-        log.debug("GetMediaSegments : Media segments cloud not be retrieved")
-        return None
-    return result["Items"]
-
-
-def report_stopped_playback(data):
-    # Send an api message to the server reporting playback has stopped
-    current_position = data.get("current_position", 0)
-    duration = data.get("duration", 0)
-    jellyfin_item_id = data.get("item_id")
-    jellyfin_source_id = data.get("source_id")
-    play_session_id = data.get("play_session_id")
-    livestream_id = data.get('livestream_id')
-
-    if jellyfin_item_id is not None and current_position >= 0:
-        log.debug("Playback Stopped at: {0}".format(current_position))
-
-        url = "/Sessions/Playing/Stopped"
-        postdata = {
-            'ItemId': jellyfin_item_id,
-            'MediaSourceId': jellyfin_source_id,
-            'PositionTicks': int(current_position * 10000000),
-            'RunTimeTicks': int(duration * 10000000),
-            'PlaySessionId': play_session_id
-        }
-
-        # If this is a livestream, include the id in the stopped call
-        if livestream_id:
-            postdata['LiveStreamId'] = livestream_id
-
-        api.post(url, postdata)
+    def onPlayBackSeekChapter(self, chapter):
+        log.debug("onPlayBackSeekChapter: chapter={0}".format(chapter))

@@ -14,7 +14,7 @@ import xbmcaddon
 import requests
 from six.moves.urllib.parse import unquote
 
-from .jellyfin import api
+from .valence import api
 from .lazylogger import LazyLogger
 from .jsonrpc import JsonRpc, get_value
 from .utils import translate_string, load_user_details
@@ -48,7 +48,7 @@ class CacheArtwork(threading.Thread):
         monitor.waitForAbort(5)
 
         while not self.stop_all_activity and not monitor.abortRequested() and xbmc.getCondVisibility("System.ScreenSaverActive"):
-            content_hash = home_window.get_property("jellycon_widget_reload")
+            content_hash = home_window.get_property("valencecon_widget_reload")
             if (check_interval != 0 and (time.time() - last_update) > check_interval) or (latest_content_hash != content_hash):
                 log.debug("CacheArtwork background thread - triggered")
                 if monitor.waitForAbort(10):
@@ -71,7 +71,7 @@ class CacheArtwork(threading.Thread):
         progress.create(translate_string(30281))
         progress.update(30, translate_string(30347))
 
-        item_image_url_part = "Items/%s/Images/" % item_id
+        item_image_url_part = "media/%s/artwork/" % item_id
         item_image_url_part = item_image_url_part.replace("/", "%2f")
         log.debug("texture ids: {0}".format(item_image_url_part))
 
@@ -138,12 +138,12 @@ class CacheArtwork(threading.Thread):
             json_result = JsonRpc('Textures.GetTextures').execute(params)
             textures = json_result.get("result", {}).get("textures", [])
 
-            jellyfin_texture_urls = self.get_jellyfin_artwork(delete_pdialog)
+            valence_texture_urls = self.get_valence_artwork(delete_pdialog)
 
             log.debug("kodi textures: {0}".format(textures))
-            log.debug("jellyfin texture urls: {0}".format(jellyfin_texture_urls))
+            log.debug("valence texture urls: {0}".format(valence_texture_urls))
 
-            if jellyfin_texture_urls is not None:
+            if valence_texture_urls is not None:
 
                 unused_texture_ids = set()
                 for texture in textures:
@@ -151,7 +151,7 @@ class CacheArtwork(threading.Thread):
                     url = unquote(url)
                     url = url.replace("image://", "")
                     url = url[0:-1]
-                    if url.find("/") > -1 and url not in jellyfin_texture_urls or url.find("localhost:24276") > -1:
+                    if url.find("/") > -1 and url not in valence_texture_urls or url.find("localhost:24276") > -1:
                         unused_texture_ids.add(texture["textureid"])
 
                 total = len(unused_texture_ids)
@@ -174,7 +174,7 @@ class CacheArtwork(threading.Thread):
                 result_report.append(translate_string(30387) + str(index))
 
             del textures
-            del jellyfin_texture_urls
+            del valence_texture_urls
             del unused_texture_ids
             delete_pdialog.close()
             del delete_pdialog
@@ -210,30 +210,41 @@ class CacheArtwork(threading.Thread):
         if result_text is not None:
             log.debug("Cache Images result : {0}".format(" - ".join(result_text)))
 
-    def get_jellyfin_artwork(self, progress):
-        log.debug("get_jellyfin_artwork")
+    def get_valence_artwork(self, progress):
+        log.debug("get_valence_artwork")
         user_details = load_user_details()
-        user_id = user_details.get('user_id')
 
-        url = ""
-        url += "/Users/{}/Items".format(user_id)
-        url += "?Recursive=true"
-        url += "&EnableUserData=False"
-        url += "&Fields=BasicSyncInfo"
-        url += "&IncludeItemTypes=Movie,Series,Episode,BoxSet"
-        url += "&ImageTypeLimit=1"
-        url += "&format=json"
+        libraries = api.get_libraries()
+        if not libraries:
+            return set()
 
-        results = api.get(url)
-        if results is None:
-            results = []
+        all_items = []
+        for library in libraries:
+            library_id = library.get('id')
+            library_kind = library.get('kind')
+            
+            if library_kind in ['movies', 'shows', 'anime']:
+                items = api.get_library_items(library_id, {'limit': 500, 'fields': get_default_filters()})
+                if items and items.get('items'):
+                    all_items.extend(items.get('items'))
+            elif library_kind == 'music':
+                albums = api.get_music_albums({'limit': 500})
+                if albums and albums.get('albums'):
+                    all_items.extend(albums.get('albums'))
+                artists = api.get_music_artists({'limit': 500})
+                if artists and artists.get('artists'):
+                    all_items.extend(artists.get('artists'))
+            elif library_kind == 'books':
+                books = api.get_books({'limit': 500})
+                if books and books.get('books'):
+                    all_items.extend(books.get('books'))
 
-        if isinstance(results, dict):
-            results = results.get("Items")
+            if self.stop_all_activity:
+                return None
 
         settings = xbmcaddon.Addon()
         server = settings.getSetting('server_address')
-        log.debug("Jellyfin Item Count Count: {0}".format(len(results)))
+        log.debug("Valence Item Count: {0}".format(len(all_items)))
 
         if self.stop_all_activity:
             return None
@@ -242,7 +253,7 @@ class CacheArtwork(threading.Thread):
 
         texture_urls = set()
 
-        for item in results:
+        for item in all_items:
             art = get_art(item, server)
             for art_type in art:
                 texture_urls.add(art[art_type])
@@ -298,13 +309,13 @@ class CacheArtwork(threading.Thread):
 
         progress.update(0, translate_string(30358))
 
-        jellyfin_texture_urls = self.get_jellyfin_artwork(progress)
-        if jellyfin_texture_urls is None:
+        valence_texture_urls = self.get_valence_artwork(progress)
+        if valence_texture_urls is None:
             return
 
         missing_texture_urls = set()
 
-        for image_url in jellyfin_texture_urls:
+        for image_url in valence_texture_urls:
             if image_url not in texture_urls and not image_url.endswith("&Tag=") and len(image_url) > 0:
                 missing_texture_urls.add(image_url)
 
