@@ -8,7 +8,7 @@ import xbmcgui
 import xbmcplugin
 import xbmcaddon
 
-from .jellyfin import api
+from .valence import api
 from .lazylogger import LazyLogger
 from .item_functions import get_art
 from .utils import load_user_details
@@ -21,17 +21,8 @@ def show_server_sessions():
 
     handle = int(sys.argv[1])
 
-    user_details = load_user_details()
-    url = "/Users/{}".format(user_details.get('user_id'))
-    results = api.get(url)
-
-    is_admin = results.get("Policy", {}).get("IsAdministrator", False)
-    if not is_admin:
-        xbmcplugin.endOfDirectory(handle, cacheToDisc=False)
-        return
-
-    url = "/Sessions"
-    results = api.get(url)
+    # Valence uses /api/admin/sessions
+    results = api.get('/admin/sessions')
     log.debug("session_info: {0}".format(results))
 
     if results is None:
@@ -40,11 +31,12 @@ def show_server_sessions():
     list_items = []
     settings = xbmcaddon.Addon()
     server = settings.getSetting('server_address')
+    
     for session in results:
-        device_name = session.get("DeviceName", "na")
-        user_name = session.get("UserName", "na")
-        client_name = session.get("Client", "na")
-        client_version = session.get("ApplicationVersion", "na")
+        device_name = session.get("DeviceName", "na") or session.get("deviceName", "na")
+        user_name = session.get("UserName", "na") or session.get("userName", "na")
+        client_name = session.get("Client", "na") or session.get("client", "na")
+        client_version = session.get("ApplicationVersion", "na") or session.get("applicationVersion", "na")
 
         play_state = session.get("PlayState", None)
         now_playing = session.get("NowPlayingItem", None)

@@ -13,7 +13,7 @@ import xbmcvfs
 import xbmcgui
 from six.moves import cPickle
 
-from .jellyfin import api
+from .valence import api
 from .lazylogger import LazyLogger
 from .item_functions import extract_item_info
 from .kodi_utils import HomeWindow
@@ -44,7 +44,6 @@ class DataManager:
 
     def __init__(self, *args):
         self.user_details = load_user_details()
-
         self.api = api
 
     @timer
@@ -54,11 +53,12 @@ class DataManager:
         log.debug("last_content_url : use_cache={0} url={1}".format(use_cache, url))
         home_window.set_property("last_content_url", url)
 
-        user_id = self.user_details.get('user_id')
+        # For Valence, we use profile_id instead of user_id
+        profile_id = self.user_details.get('profile_id')
         server = self.api.server
 
         m = hashlib.md5()
-        m.update('{}|{}|{}'.format(user_id, server, url).encode())
+        m.update('{}|{}|{}'.format(profile_id, server, url).encode())
         url_hash = m.hexdigest()
         cache_file = os.path.join(self.addon_dir, "cache_" + url_hash + ".pickle")
 
@@ -100,15 +100,28 @@ class DataManager:
             if results is None:
                 results = []
 
+            # Valence API returns items directly or in an "items" array
             if isinstance(results, dict):
-                total_records = results.get("TotalRecordCount", 0)
-
-            if isinstance(results, dict) and results.get("Items") is not None:
-                baseline_name = results.get("BaselineItemName")
-                results = results.get("Items", [])
-            elif isinstance(results, list) and len(results) > 0 and results[0].get("Items") is not None:
+                if "items" in results:
+                    total_records = results.get("total", 0)
+                    baseline_name = results.get("BaselineItemName")
+                    results = results.get("items", [])
+                elif "Items" in results:
+                    total_records = results.get("TotalRecordCount", 0)
+                    baseline_name = results.get("BaselineItemName")
+                    results = results.get("Items", [])
+                elif "shows" in results:
+                    total_records = len(results.get("shows", []))
+                    results = results.get("shows", [])
+                else:
+                    total_records = len(results) if isinstance(results, list) else 0
+            elif isinstance(results, list) and len(results) > 0 and isinstance(results[0], dict) and "Items" in results[0]:
                 baseline_name = results[0].get("BaselineItemName")
                 results = results[0].get("Items")
+            elif isinstance(results, list):
+                total_records = len(results)
+            else:
+                total_records = 0
 
             item_list = []
             for item in results:
@@ -120,7 +133,7 @@ class DataManager:
             cache_item.item_list = item_list
             cache_item.file_path = cache_file
             cache_item.items_url = url
-            cache_item.user_id = user_id
+            cache_item.user_id = profile_id
             cache_item.last_action = "fresh_data"
             cache_item.date_saved = time.time()
             cache_item.date_last_used = time.time()
@@ -201,10 +214,12 @@ class CacheManagerThread(threading.Thread):
                 results = results.get("Items", [])
             elif isinstance(results, list) and len(results) > 0 and results[0].get("Items") is not None:
                 results = results[0].get("Items")
+            elif isinstance(results, dict) and results.get("items") is not None:
+                results = results.get("items", [])
 
             total_records = 0
             if isinstance(results, dict):
-                total_records = results.get("TotalRecordCount", 0)
+                total_records = results.get("TotalRecordCount", 0) or results.get("total", 0)
 
             loaded_items = []
             for item in results:
@@ -235,7 +250,7 @@ class CacheManagerThread(threading.Thread):
 
                 # TODO: probably should only set this in simple check mode
                 current_time_stamp = str(time.time())
-                home_window.set_property("jellycon_widget_reload", current_time_stamp)
+                home_window.set_property("valencecon_widget_reload", current_time_stamp)
                 log.debug("Setting New Widget Hash: {0}".format(current_time_stamp))
 
                 log.debug("CacheManagerThread : Sending container refresh")

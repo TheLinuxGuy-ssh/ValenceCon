@@ -12,12 +12,12 @@ from six import ensure_binary, ensure_text
 from six.moves.urllib.parse import quote
 
 from .dir_functions import get_content
-from .jellyfin import api
+from .valence import api
 from .kodi_utils import add_menu_directory_item, HomeWindow
 from .lazylogger import LazyLogger
 from .utils import (
-    get_filtered_items_count_text, get_jellyfin_url, translate_string, get_art_url,
-    get_default_filters, get_current_user_id
+    get_filtered_items_count_text, get_valence_url, translate_string, get_art_url,
+    get_default_filters, get_current_profile_id
 )
 from .item_functions import get_art
 
@@ -27,547 +27,330 @@ __addon__ = xbmcaddon.Addon()
 settings = xbmcaddon.Addon()
 
 
-def show_movie_tags(menu_params):
-    log.debug("show_movie_tags: {0}".format(menu_params))
-    parent_id = menu_params.get("parent_id")
-    user_id = get_current_user_id()
+# Valence library kinds
+LIBRARY_KINDS = {
+    'movies': {'label': 30256, 'media_type': 'movies', 'valence_type': 'Movie'},
+    'shows': {'label': 30261, 'media_type': 'tvshows', 'valence_type': 'Series'},
+    'anime': {'label': 30261, 'media_type': 'tvshows', 'valence_type': 'Series'},
+    'music': {'label': 30320, 'media_type': 'music', 'valence_type': 'MusicAlbum'},
+    'books': {'label': 30320, 'media_type': 'books', 'valence_type': 'Book'},
+}
 
-    url_params = {
-        "UserId": user_id,
-        "SortBy": "SortName",
-        "SortOrder": "Ascending",
-        "CollapseBoxSetItems": False,
-        "GroupItemsIntoCollections": False,
-        "Recursive": True,
-        "IsMissing": False,
-        "EnableTotalRecordCount": False,
-        "EnableUserData": False,
-        "IncludeItemTypes": "Movie"
+
+def build_library_url(library_id, params=None):
+    """Build a URL for browsing a library"""
+    default_params = {
+        'limit': 100,
+        'fields': get_default_filters(),
     }
+    if params:
+        default_params.update(params)
+    return get_valence_url('/libraries/{}/items'.format(library_id), default_params)
 
-    if parent_id:
-        url_params["ParentId"] = parent_id
 
-    url = get_jellyfin_url("/Tags", url_params)
-    result = api.get(url)
+def build_library_shows_url(library_id, params=None):
+    """Build a URL for browsing shows in a library"""
+    default_params = {
+        'limit': 100,
+        'fields': get_default_filters(),
+    }
+    if params:
+        default_params.update(params)
+    return get_valence_url('/libraries/{}/shows'.format(library_id), default_params)
 
-    if not result:
+
+def add_library_menu_items(library, view_name, item_limit):
+    """Add standard menu items for a library based on its kind"""
+    handle = int(sys.argv[1])
+    library_id = library.get('id')
+    library_kind = library.get('kind', 'mixed')
+    
+    # Map library kind to display functions
+    if library_kind in ['movies', 'shows', 'anime']:
+        display_movies_or_shows_type(library, view_name, item_limit)
+    elif library_kind == 'music':
+        display_music_type(None, library)
+    elif library_kind == 'books':
+        display_books_type(None, library)
+    elif library_kind == 'livetv':
+        display_livetv_type(None, library)
+
+
+def display_movies_or_shows_type(library, view_name, item_limit):
+    """Display menu for movies or shows library"""
+    handle = int(sys.argv[1])
+    library_id = library.get('id')
+    library_kind = library.get('kind', 'movies')
+    
+    # Determine if movies or shows
+    is_movies = library_kind == 'movies'
+    valence_type = 'Movie' if is_movies else 'Series'
+    media_type = 'movies' if is_movies else 'tvshows'
+    view_label = translate_string(30256) if is_movies else translate_string(30261)
+    
+    if view_name:
+        view_label = view_name
+    
+    # All items
+    base_params = {
+        'limit': item_limit,
+        'fields': get_default_filters(),
+    }
+    path = build_library_url(library_id, base_params)
+    
+    if settings.getSetting("interface_mode") == "1":
+        get_content(path, {"media_type": media_type})
         return
 
-    tags = result.get("Items", [])
-
-    log.debug("Tags : {0}".format(result))
-
-    url_params = {
-        "IncludeItemTypes": "Movie",
-        "CollapseBoxSetItems": False,
-        "GroupItemsIntoCollections": False,
-        "Recursive": True,
-        "IsMissing": False,
-        "ImageTypeLimit": 1,
-        "SortBy": "Name",
-        "SortOrder": "Ascending",
-        "Fields": get_default_filters()
-    }
-
-    for tag in tags:
-        name = tag["Name"]
-        tag_id = tag["Id"]
-
-        url_params["TagIds"] = tag_id
-
-        if parent_id:
-            menu_params["ParentId"] = parent_id
-
-        item_url = get_jellyfin_url("/Users/{userid}/Items", url_params)
-
-        art = {"thumb": "http://localhost:24276/{}".format(ensure_text(base64.b64encode(ensure_binary(item_url))))}
-
-        content_url = quote(item_url)
-        url = sys.argv[0] + ("?url=" +
-                             content_url +
-                             "&mode=GET_CONTENT" +
-                             "&media_type=movies")
-        log.debug("addMenuDirectoryItem: {0} - {1}".format(name, url))
-        add_menu_directory_item(name, url, art=art)
-
-    xbmcplugin.endOfDirectory(int(sys.argv[1]))
-
-
-def show_movie_years(menu_params):
-    log.debug("show_movie_years: {0}".format(menu_params))
-    parent_id = menu_params.get("parent_id")
-    group_into_decades = menu_params.get("group") == "true"
-    user_id = get_current_user_id()
-
-    url_params = {
-        "UserId": user_id,
-        "SortBy": "SortName",
-        "SortOrder": "Ascending",
-        "CollapseBoxSetItems": False,
-        "GroupItemsIntoCollections": False,
-        "Recursive": True,
-        "IsMissing": False,
-        "EnableTotalRecordCount": False,
-        "EnableUserData": False,
-        "IncludeItemTypes": "Movie"
-    }
-
-    if parent_id:
-        url_params["ParentId"] = parent_id
-
-    url = get_jellyfin_url("/Years", url_params)
-
-    result = api.get(url)
-
-    if not result:
-        return
-
-    years_list = result.get("Items", [])
-    result_names = {}
-    for year in years_list:
-        name = year.get("Name")
-        if group_into_decades:
-            year_int = int(name)
-            decade = str(year_int - year_int % 10)
-            decade_end = str((year_int - year_int % 10) + 9)
-            decade_name = decade + "-" + decade_end
-            result_names[decade_name] = year_int - year_int % 10
-        else:
-            result_names[name] = [name]
-
-    keys = list(result_names.keys())
-    keys.sort()
-
-    if group_into_decades:
-        for decade_key in keys:
-            year_list = []
-            decade_start = result_names[decade_key]
-            for include_year in range(decade_start, decade_start + 10):
-                year_list.append(str(include_year))
-            result_names[decade_key] = year_list
-
-    params = {
-        "IncludeItemTypes": "Movie",
-        "CollapseBoxSetItems": False,
-        "GroupItemsIntoCollections": False,
-        "Recursive": True,
-        "IsMissing": False,
-        "ImageTypeLimit": 1,
-        "SortBy": "Name",
-        "SortOrder": "Ascending",
-        "Fields": get_default_filters()
-    }
-
-    for year in keys:
-        name = year
-        value = ",".join(result_names[year])
-
-        params["Years"] = value
-
-        if parent_id:
-            params["ParentId"] = parent_id
-
-        item_url = get_jellyfin_url("/Users/{userid}/Items", params)
-
-        art = {"thumb": "http://localhost:24276/{}".format(ensure_text(base64.b64encode(ensure_binary(item_url))))}
-
-        content_url = quote(item_url)
-        url = sys.argv[0] + ("?url=" +
-                             content_url +
-                             "&mode=GET_CONTENT" +
-                             "&media_type=movies")
-        log.debug("addMenuDirectoryItem: {0} - {1}".format(name, url))
-        add_menu_directory_item(name, url, art=art)
-
-    xbmcplugin.endOfDirectory(int(sys.argv[1]))
-
-
-def show_movie_pages(menu_params):
-    log.debug("showMoviePages: {0}".format(menu_params))
-
-    parent_id = menu_params.get("parent_id")
-    group_movies = settings.getSetting('group_movies') == "true"
-    user_id = get_current_user_id()
-
-    params = {
-        "IncludeItemTypes": "Movie",
-        "CollapseBoxSetItems": group_movies,
-        "GroupItemsIntoCollections": group_movies,
-        "Recursive": True,
-        "IsMissing": False,
-        "ImageTypeLimit": 0
-    }
-
-    if parent_id:
-        params["ParentId"] = parent_id
-
-    url = get_jellyfin_url("/Users/{}/Items".format(user_id), params)
-
-    result = api.get(url)
-
-    if result is None:
-        return
-
-    total_results = result.get("TotalRecordCount", 0)
-    log.debug("showMoviePages TotalRecordCount {0}".format(total_results))
-
-    if result == 0:
-        return
-
-    page_limit = int(settings.getSetting('moviePageSize'))
-    if page_limit == 0:
-        page_limit = 20
-
-    start_index = 0
-
-    params = {
-        "IncludeItemTypes": "Movie",
-        "CollapseBoxSetItems": group_movies,
-        "GroupItemsIntoCollections": group_movies,
-        "Recursive": True,
-        "IsMissing": False,
-        "ImageTypeLimit": 1,
-        "SortBy": "Name",
-        "SortOrder": "Ascending",
-        "Fields": get_default_filters()
-    }
-
-    while start_index < total_results:
-
-        params["StartIndex"] = start_index
-        params["Limit"] = page_limit
-
-        if parent_id:
-            params["ParentId"] = parent_id
-
-        item_url = get_jellyfin_url("/Users/{userid}/Items", params)
-
-        page_upper = start_index + page_limit
-        if page_upper > total_results:
-            page_upper = total_results
-
-        art = {"thumb": "http://localhost:24276/{}".format(ensure_text(base64.b64encode(ensure_binary(item_url))))}
-        title = 'Page ({} - {})'.format(start_index + 1, page_upper)
-
-        start_index = start_index + page_limit
-
-        content_url = quote(item_url)
-        url = sys.argv[0] + ("?url=" + content_url +
-                             "&mode=GET_CONTENT" +
-                             "&media_type=movies")
-        log.debug("addMenuDirectoryItem: {0} - {1} - {2}".format(title, url, art))
-        add_menu_directory_item(title, url, art=art)
-
-    xbmcplugin.endOfDirectory(int(sys.argv[1]))
-
-
-def show_genre_list(menu_params):
-    log.debug("showGenreList: {0}".format(menu_params))
-
-    server = settings.getSetting('server_address')
-    if server is None:
-        return
-
-    parent_id = menu_params.get("parent_id")
-    item_type = menu_params.get("item_type")
-    user_id = get_current_user_id()
-
-    jellyfin_type = ''
-    kodi_type = ''
-    if item_type == 'movie':
-        jellyfin_type = "Movie"
-        kodi_type = 'Movies'
-    elif item_type == 'tvshow':
-        jellyfin_type = 'Series'
-        kodi_type = 'tvshows'
-    elif item_type == 'MusicAlbum':
-        jellyfin_type = 'MusicAlbum'
-        kodi_type = 'albums'
-    elif item_type == 'mixed':
-        jellyfin_type = 'Movie,Series'
-        kodi_type = 'videos'
-
-    params = {
-        "IncludeItemTypes": jellyfin_type,
-        "UserId": user_id,
-        "Recursive": True,
-        "SortBy": "Name",
-        "SortOrder": "Ascending",
-        "ImageTypeLimit": 1
-    }
-
-    if parent_id is not None:
-        params["ParentId"] = parent_id
-
-    url = get_jellyfin_url("/Genres", params)
-
-    result = api.get(url)
-
-    if result is not None:
-        result = result.get("Items")
+    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=" + media_type
+    add_menu_directory_item('{}{}'.format(view_label, translate_string(30405)), url)
+    
+    if is_movies:
+        # Favorite Movies
+        fav_params = base_params.copy()
+        fav_params['filters'] = 'favorite'
+        path = build_library_url(library_id, fav_params)
+        url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=movies"
+        add_menu_directory_item('{}{}'.format(view_label, translate_string(30414)), url)
+        
+        # Unwatched Movies
+        unwatched_params = base_params.copy()
+        unwatched_params['filters'] = 'unplayed'
+        path = build_library_url(library_id, unwatched_params)
+        url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=movies"
+        add_menu_directory_item('{}{}'.format(view_label, translate_string(30285)), url)
+        
+        # Recently Watched
+        recent_watched = base_params.copy()
+        recent_watched['filters'] = 'played'
+        recent_watched['sort'] = 'datePlayed'
+        recent_watched['sortOrder'] = 'desc'
+        path = build_library_url(library_id, recent_watched)
+        url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=movies&sort=none"
+        add_menu_directory_item('{}{}{}'.format(view_label, translate_string(30349), get_filtered_items_count_text()), url)
+        
+        # Resumable Movies
+        resumable = base_params.copy()
+        resumable['filters'] = 'resumable'
+        resumable['sort'] = 'datePlayed'
+        resumable['sortOrder'] = 'desc'
+        path = build_library_url(library_id, resumable)
+        url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=movies&sort=none"
+        add_menu_directory_item('{}{}{}'.format(view_label, translate_string(30267), get_filtered_items_count_text()), url)
+        
+        # Recently Added
+        recent_added = base_params.copy()
+        recent_added['sort'] = 'addedAt'
+        recent_added['sortOrder'] = 'desc'
+        path = build_library_url(library_id, recent_added)
+        url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=movies&sort=none"
+        add_menu_directory_item('{}{}{}'.format(view_label, translate_string(30268), get_filtered_items_count_text()), url)
+        
+        # Genres
+        path = "plugin://plugin.video.valencecon/?mode=GENRES&library_id={}&kind=movies".format(library_id)
+        add_menu_directory_item('{}{}'.format(view_label, translate_string(30325)), path)
+        
+        # Alpha Picker
+        path = "plugin://plugin.video.valencecon/?mode=MOVIE_ALPHA&library_id={}".format(library_id)
+        add_menu_directory_item('{}{}'.format(view_label, translate_string(30404)), path)
+        
+        # Years/Decades
+        path = "plugin://plugin.video.valencecon/?mode=SHOW_ADDON_MENU&type=show_movie_years&library_id={}".format(library_id)
+        add_menu_directory_item('{}{}'.format(view_label, translate_string(30411)), path)
+        
+        path = "plugin://plugin.video.valencecon/?mode=SHOW_ADDON_MENU&type=show_movie_years&group=true&library_id={}".format(library_id)
+        add_menu_directory_item('{}{}'.format(view_label, translate_string(30412)), path)
     else:
-        result = []
+        # Shows/Anime
+        # Favorite Shows
+        fav_params = base_params.copy()
+        fav_params['filters'] = 'favorite'
+        path = build_library_shows_url(library_id, fav_params)
+        url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=tvshows"
+        add_menu_directory_item('{}{}'.format(view_label, translate_string(30414)), url)
+        
+        # Shows with unplayed
+        unplayed_params = base_params.copy()
+        unplayed_params['filters'] = 'unplayed'
+        path = build_library_shows_url(library_id, unplayed_params)
+        url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=tvshows"
+        add_menu_directory_item('{}{}'.format(view_label, translate_string(30285)), url)
+        
+        # Totally unwatched
+        totally_unwatched = base_params.copy()
+        totally_unwatched['filters'] = 'unplayed'
+        path = build_library_shows_url(library_id, totally_unwatched)
+        url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=tvshows&OnlyTotallyUnwatched=1"
+        add_menu_directory_item('{}{}'.format(view_label, translate_string(30454)), url)
+        
+        # In progress episodes
+        in_progress = {
+            'limit': item_limit,
+            'sort': 'datePlayed',
+            'sortOrder': 'desc',
+            'filters': 'resumable',
+            'type': 'episode',
+            'fields': get_default_filters(),
+        }
+        path = build_library_url(library_id, in_progress)
+        url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=Episodes&sort=none"
+        url += "&name_format=" + quote('Episode|episode_name_format')
+        add_menu_directory_item('{}{}'.format(view_label, translate_string(30267) + get_filtered_items_count_text()), url)
+        
+        # Latest Episodes
+        latest_eps = {
+            'limit': item_limit,
+            'sort': 'addedAt',
+            'sortOrder': 'desc',
+            'type': 'episode',
+            'fields': get_default_filters(),
+        }
+        path = build_library_url(library_id, latest_eps)
+        url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=Episodes&sort=none"
+        add_menu_directory_item('{}{}'.format(view_label, translate_string(30288) + get_filtered_items_count_text()), url)
+        
+        # Recently Added Episodes
+        recent_eps = {
+            'limit': item_limit,
+            'sort': 'addedAt',
+            'sortOrder': 'desc',
+            'filters': 'notfolder',
+            'type': 'episode',
+            'fields': get_default_filters(),
+        }
+        path = build_library_url(library_id, recent_eps)
+        url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=Episodes&sort=none"
+        url += "&name_format=" + quote('Episode|episode_name_format')
+        add_menu_directory_item('{}{}'.format(view_label, translate_string(30268) + get_filtered_items_count_text()), url)
+        
+        # Next Up Episodes
+        next_up = {
+            'limit': item_limit,
+            'sort': 'datePlayed',
+            'sortOrder': 'desc',
+            'type': 'episode',
+            'fields': get_default_filters(),
+        }
+        path = build_library_url(library_id, next_up)
+        url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=Episodes&sort=none"
+        url += "&name_format=" + quote('Episode|episode_name_format')
+        add_menu_directory_item('{}{}'.format(view_label, translate_string(30278) + get_filtered_items_count_text()), url)
+        
+        # Genres
+        path = "plugin://plugin.video.valencecon/?mode=GENRES&library_id={}&kind=shows".format(library_id)
+        add_menu_directory_item('{}{}'.format(view_label, translate_string(30325)), path)
+        
+        # Alpha picker
+        path = "plugin://plugin.video.valencecon/?mode=TVSHOW_ALPHA&library_id={}".format(library_id)
+        add_menu_directory_item('{}{}'.format(view_label, translate_string(30404)), path)
 
-    group_movies = settings.getSetting('group_movies') == "true"
 
-    xbmcplugin.setContent(int(sys.argv[1]), 'genres')
+def display_music_type(menu_params, view):
+    handle = int(sys.argv[1])
+    library = view if view else menu_params
+    view_name = library.get("Name", translate_string(30320))
+    library_id = library.get("Id")
 
+    item_limit = settings.getSetting("show_x_filtered_items")
+
+    # All albums
     params = {
-        "Recursive": True,
-        "CollapseBoxSetItems": group_movies,
-        "GroupItemsIntoCollections": group_movies,
-        "IncludeItemTypes": jellyfin_type,
-        "ImageTypeLimit": 1,
-        "Fields": get_default_filters()
+        'limit': item_limit,
+        'fields': get_default_filters(),
     }
+    path = build_library_url(library_id, params)
 
-    for genre in result:
-        title = genre.get('Name', translate_string(30250))
-
-        genre_id = genre.get("Id")
-        params["GenreIds"] = genre_id
-        li_properties = {"id": genre_id}
-
-        if parent_id is not None:
-            params["ParentId"] = parent_id
-
-        path = get_jellyfin_url("/Users/{userid}/Items", params)
-
-        art = {"thumb": "http://localhost:24276/{}".format(ensure_text(base64.b64encode(ensure_binary(path))))}
-
-        url = sys.argv[0] + ("?url=" + quote(path) +
-                             "&mode=GET_CONTENT" +
-                             "&media_type=" + kodi_type)
-        log.debug("addMenuDirectoryItem: {0} - {1} - {2}".format(title, url, art))
-        add_menu_directory_item(title, url, art=art, properties=li_properties)
-
-    xbmcplugin.endOfDirectory(int(sys.argv[1]))
-
-
-def show_movie_alpha_list(menu_params):
-    log.debug("== ENTER: showMovieAlphaList() ==")
-
-    xbmcplugin.setContent(int(sys.argv[1]), 'movies')
-
-    server = settings.getSetting('server_address')
-    if server is None:
+    if settings.getSetting("interface_mode") == "1":
+        get_content(path, {"media_type": "MusicAlbums"})
         return
 
-    group_movies = settings.getSetting('group_movies') == "true"
-    parent_id = menu_params.get("parent_id")
-    user_id = get_current_user_id()
+    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=MusicAlbums"
+    add_menu_directory_item(view_name + translate_string(30320), url)
 
-    url_params = {
-        "IncludeItemTypes": "Movie",
-        "Recursive": True,
-        "GroupItemsIntoCollections": group_movies,
-        "UserId": user_id,
-        "SortBy": "Name",
-        "SortOrder": "Ascending"
+    # Recently added
+    recent_params = params.copy()
+    recent_params['sort'] = 'addedAt'
+    recent_params['sortOrder'] = 'desc'
+    path = build_library_url(library_id, recent_params)
+    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=MusicAlbums"
+    add_menu_directory_item(view_name + translate_string(30268) + get_filtered_items_count_text(), url)
+
+    # Artists
+    artist_params = {
+        'limit': item_limit,
+        'fields': get_default_filters(),
     }
+    path = get_valence_url('/music/artists', artist_params)
+    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=MusicArtists"
+    add_menu_directory_item(view_name + translate_string(30321), url)
 
-    if parent_id is not None:
-        url_params["ParentId"] = parent_id
+    # Genres
+    path = "plugin://plugin.video.valencecon/?mode=GENRES&library_id={}&kind=music".format(library_id)
+    add_menu_directory_item(view_name + translate_string(30325), path)
 
-    prefixes = '#' + string.ascii_uppercase
+    # Artist Alpha picker
+    path = "plugin://plugin.video.valencecon/?mode=ARTIST_ALPHA&library_id={}".format(library_id)
+    add_menu_directory_item('{} - {}{}'.format(
+        view_name, translate_string(30323), translate_string(30404)), path)
 
+    # Shuffle All
+    path = "plugin://plugin.video.valencecon/?mode=PLAY&action=shuffle&library_id={}".format(library_id)
+    add_menu_directory_item('{} - {}'.format(
+        view_name, translate_string(30448)), path, False)
+
+    xbmcplugin.endOfDirectory(handle)
+
+
+def display_books_type(menu_params, view):
+    handle = int(sys.argv[1])
+    library = view if view else menu_params
+    view_name = library.get("Name", translate_string(30320))
+    library_id = library.get("Id")
+
+    item_limit = settings.getSetting("show_x_filtered_items")
+
+    # All books
     params = {
-        "Fields": get_default_filters(),
-        "CollapseBoxSetItems": group_movies,
-        "GroupItemsIntoCollections": group_movies,
-        "Recursive": True,
-        "IncludeItemTypes": "Movie",
-        "SortBy": "Name",
-        "SortOrder": "Ascending",
-        "ImageTypeLimit": 1
+        'limit': item_limit,
+        'fields': get_default_filters(),
     }
+    path = build_library_url(library_id, params)
 
-    for alpha_name in prefixes:
-        if parent_id is not None:
-            params["ParentId"] = parent_id
-
-        if alpha_name == "#":
-            params["NameLessThan"] = "A"
-            # Ensure we don't try to search both at once
-            if 'NameStartsWith' in params:
-                params.pop('NameStartsWith')
-        else:
-            params["NameStartsWith"] = alpha_name
-            # Ensure we don't try to search both at once
-            if 'NameLessThan' in params:
-                params.pop('NameLessThan')
-
-        path = get_jellyfin_url("/Users/{userid}/Items", params)
-
-        art = {"thumb": "http://localhost:24276/{}".format(ensure_text(base64.b64encode(ensure_binary(path))))}
-
-        url = (sys.argv[0] + "?url=" + quote(path) +
-               "&mode=GET_CONTENT&media_type=Movies")
-        log.debug("addMenuDirectoryItem: {0} ({1})".format(alpha_name, url))
-        add_menu_directory_item(alpha_name, url, art=art)
-
-    xbmcplugin.endOfDirectory(int(sys.argv[1]))
-
-
-def show_tvshow_alpha_list(menu_params):
-    log.debug("== ENTER: showTvShowAlphaList() ==")
-
-    server = settings.getSetting('server_address')
-    if server is None:
+    if settings.getSetting("interface_mode") == "1":
+        get_content(path, {"media_type": "books"})
         return
 
-    parent_id = menu_params.get("parent_id")
+    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=books"
+    add_menu_directory_item(view_name + translate_string(30320), url)
 
-    prefixes = '#' + string.ascii_uppercase
+    xbmcplugin.endOfDirectory(handle)
 
+
+def display_livetv_type(menu_params, view):
+    handle = int(sys.argv[1])
+    xbmcplugin.setContent(handle, 'files')
+
+    library = view if view else menu_params
+    view_name = library.get("Name", "Live TV")
+    library_id = library.get("Id")
+
+    # Channels
     params = {
-        "Fields": get_default_filters(),
-        "ImageTypeLimit": 1,
-        "IncludeItemTypes": "Series",
-        "SortBy": "Name",
-        "SortOrder": "Ascending",
-        "Recursive": True,
-        "IsMissing": False
+        'limit': 100,
+        'fields': get_default_filters(),
     }
+    path = get_valence_url('/live/channels', params)
+    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=livetv"
+    add_menu_directory_item(view_name + translate_string(30360), url)
 
-    for alpha_name in prefixes:
+    # Guide
+    guide_params = params.copy()
+    guide_params['now'] = 'true'
+    path = get_valence_url('/live/guide', guide_params)
+    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=livetv"
+    add_menu_directory_item(view_name + translate_string(30361), url)
 
-        if parent_id is not None:
-            params["ParentId"] = parent_id
-
-        if alpha_name == "#":
-            params["NameLessThan"] = "A"
-            # Ensure we don't try to search both at once
-            if 'NameStartsWith' in params:
-                params.pop('NameStartsWith')
-        else:
-            params["NameStartsWith"] = alpha_name
-            # Ensure we don't try to search both at once
-            if 'NameLessThan' in params:
-                params.pop('NameLessThan')
-
-        path = get_jellyfin_url("/Users/{userid}/Items", params)
-
-        art = {"thumb": "http://localhost:24276/{}".format(ensure_text(base64.b64encode(ensure_binary(path))))}
-
-        url = (sys.argv[0] + "?url=" + quote(path) +
-               "&mode=GET_CONTENT&media_type=tvshows")
-        log.debug("addMenuDirectoryItem: {0} ({1})".format(alpha_name, url))
-        add_menu_directory_item(alpha_name, url, art=art)
-
-    xbmcplugin.endOfDirectory(int(sys.argv[1]))
-
-
-def show_mixed_alpha_list(menu_params):
-    log.debug("== ENTER: showTvShowAlphaList() ==")
-
-    server = settings.getSetting('server_address')
-    if server is None:
-        return
-
-    parent_id = menu_params.get("parent_id")
-
-    prefixes = '#' + string.ascii_uppercase
-
-    params = {
-        "Fields": get_default_filters(),
-        "ImageTypeLimit": 1,
-        "IncludeItemTypes": "Series,Movie",
-        "SortBy": "Name",
-        "SortOrder": "Ascending",
-        "Recursive": True,
-        "IsMissing": False
-    }
-
-    for alpha_name in prefixes:
-
-        if parent_id is not None:
-            params["ParentId"] = parent_id
-
-        if alpha_name == "#":
-            params["NameLessThan"] = "A"
-            # Ensure we don't try to search both at once
-            if 'NameStartsWith' in params:
-                params.pop('NameStartsWith')
-        else:
-            params["NameStartsWith"] = alpha_name
-            # Ensure we don't try to search both at once
-            if 'NameLessThan' in params:
-                params.pop('NameLessThan')
-
-        path = get_jellyfin_url("/Users/{userid}/Items", params)
-
-        art = {"thumb": "http://localhost:24276/{}".format(ensure_text(base64.b64encode(ensure_binary(path))))}
-
-        url = (sys.argv[0] + "?url=" + quote(path) +
-               "&mode=GET_CONTENT&media_type=mixed")
-        log.debug("addMenuDirectoryItem: {0} ({1})".format(alpha_name, url))
-        add_menu_directory_item(alpha_name, url, art=art)
-
-    xbmcplugin.endOfDirectory(int(sys.argv[1]))
-
-
-def show_artist_alpha_list(menu_params):
-    log.debug("== ENTER: showArtistAlphaList() ==")
-
-    xbmcplugin.setContent(int(sys.argv[1]), 'artists')
-
-    server = settings.getSetting('server_address')
-    if server is None:
-        return
-
-    parent_id = menu_params.get("parent_id")
-    user_id = get_current_user_id()
-
-    url_params = {
-        "IncludeItemTypes": "MusicArtist",
-        "Recursive": True,
-        "UserId": user_id,
-        "SortBy": "Name",
-        "SortOrder": "Ascending"
-    }
-
-    if parent_id is not None:
-        url_params["ParentId"] = parent_id
-
-    prefixes = '#' + string.ascii_uppercase
-
-    params = {
-        "Fields": get_default_filters(),
-        "Recursive": True,
-        "IncludeItemTypes": "MusicArtist",
-        "SortBy": "Name",
-        "SortOrder": "Ascending",
-        "ImageTypeLimit": 1
-    }
-
-    for alpha_name in prefixes:
-
-        if parent_id is not None:
-            params["ParentId"] = parent_id
-
-        if alpha_name == "#":
-            params["NameLessThan"] = "A"
-            # Ensure we don't try to search both at once
-            if 'NameStartsWith' in params:
-                params.pop('NameStartsWith')
-        else:
-            params["NameStartsWith"] = alpha_name
-            # Ensure we don't try to search both at once
-            if 'NameLessThan' in params:
-                params.pop('NameLessThan')
-
-        path = get_jellyfin_url("/Users/{userid}/Items", params)
-
-        art = {"thumb": "http://localhost:24276/{}".format(ensure_text(base64.b64encode(ensure_binary(path))))}
-
-        url = (sys.argv[0] + "?url=" + quote(path) +
-               "&mode=GET_CONTENT&media_type=Artists")
-        log.debug("addMenuDirectoryItem: {0} ({1})".format(alpha_name, url))
-        add_menu_directory_item(alpha_name, url, art=art)
-
-    xbmcplugin.endOfDirectory(int(sys.argv[1]))
+    xbmcplugin.endOfDirectory(handle)
 
 
 def display_main_menu():
@@ -579,13 +362,13 @@ def display_main_menu():
         return
 
     add_menu_directory_item(translate_string(30406),
-                            "plugin://plugin.video.jellycon/?mode=SHOW_ADDON_MENU&type=library")
+                            "plugin://plugin.video.valencecon/?mode=SHOW_ADDON_MENU&type=library")
     add_menu_directory_item(translate_string(30407),
-                            "plugin://plugin.video.jellycon/?mode=SHOW_ADDON_MENU&type=show_global_types")
+                            "plugin://plugin.video.valencecon/?mode=SHOW_ADDON_MENU&type=show_global_types")
     add_menu_directory_item(translate_string(30408),
-                            "plugin://plugin.video.jellycon/?mode=SHOW_ADDON_MENU&type=show_custom_widgets")
+                            "plugin://plugin.video.valencecon/?mode=SHOW_ADDON_MENU&type=show_custom_widgets")
     add_menu_directory_item(translate_string(30409),
-                            "plugin://plugin.video.jellycon/?mode=SHOW_ADDON_MENU&type=addon_items")
+                            "plugin://plugin.video.valencecon/?mode=SHOW_ADDON_MENU&type=addon_items")
 
     xbmcplugin.endOfDirectory(handle)
 
@@ -599,9 +382,9 @@ def display_menu(params):
     elif menu_type == "show_global_types":
         show_global_types(params)
     elif menu_type == "global_list_movies":
-        display_movies_type(params, None)
+        display_global_movies(params)
     elif menu_type == "global_list_tvshows":
-        display_tvshow_type(params, None)
+        display_global_tvshows(params)
     elif menu_type == "show_custom_widgets":
         show_widgets()
     elif menu_type == "addon_items":
@@ -615,774 +398,318 @@ def display_menu(params):
 def show_global_types(params):
     handle = int(sys.argv[1])
 
-    continue_watching_url_params = {
-        "Fields": get_default_filters(),
-        "ImageTypeLimit": 1,
-    }
-    continue_watching_url = get_jellyfin_url("/Users/{userid}/Items/Resume", continue_watching_url_params)
-    add_menu_directory_item(translate_string(30445),
-                            "plugin://plugin.video.jellycon/?mode=GET_CONTENT&url=" + quote(continue_watching_url) +
-                            "&media_type=movies" +
-                            "&name_format="+quote("Episode|episode_name_format"))
+    # Continue watching
+    up_next = api.get_up_next()
+    if up_next and up_next.get('episodes'):
+        add_menu_directory_item(translate_string(30445),
+                                "plugin://plugin.video.valencecon/?mode=GET_CONTENT&url=" + quote(api.server + "/api/up-next") +
+                                "&media_type=Episodes" +
+                                "&name_format=" + quote("Episode|episode_name_format"))
 
     add_menu_directory_item(translate_string(30256),
-                            "plugin://plugin.video.jellycon/?mode=SHOW_ADDON_MENU&type=global_list_movies")
+                            "plugin://plugin.video.valencecon/?mode=SHOW_ADDON_MENU&type=global_list_movies")
     add_menu_directory_item(translate_string(30261),
-                            "plugin://plugin.video.jellycon/?mode=SHOW_ADDON_MENU&type=global_list_tvshows")
+                            "plugin://plugin.video.valencecon/?mode=SHOW_ADDON_MENU&type=global_list_tvshows")
 
     xbmcplugin.endOfDirectory(handle)
 
 
-def display_homevideos_type(menu_params, view):
+def display_global_movies(params):
+    """Display global movie lists across all movie libraries"""
     handle = int(sys.argv[1])
-    view_name = view.get("Name")
     item_limit = settings.getSetting("show_x_filtered_items")
     hide_watched = settings.getSetting("hide_watched") == "true"
+    group_movies = settings.getSetting('group_movies') == "true"
 
-    # All Home Movies
+    # Get all movie libraries
+    libraries = api.get_libraries()
+    movie_libs = [l for l in libraries if l.get('kind') == 'movies'] if libraries else []
+
+    if not movie_libs:
+        xbmcplugin.endOfDirectory(handle)
+        return
+
+    # Build combined URL for all movie libraries
+    lib_ids = ','.join([l['id'] for l in movie_libs])
+    
     base_params = {
-        "ParentId": view.get("Id"),
-        "Recursive": False,
-        "IsMissing": False,
-        "Fields": get_default_filters(),
-        "ImageTypeLimit": 1
+        'limit': item_limit,
+        'fields': get_default_filters(),
+        'libraryIds': lib_ids,
     }
-    path = get_jellyfin_url("/Users/{userid}/Items", base_params)
-    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=homevideos"
-    add_menu_directory_item(view_name + translate_string(30405), url)
 
-    # In progress home movies
-    params = {}
-    params.update(base_params)
-    params["Filters"] = "IsResumable"
-    params["Recursive"] = True
-    params["Limit"] = item_limit
-    path = get_jellyfin_url("/Users/{userid}/Items", params)
-    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=homevideos"
-    add_menu_directory_item(view_name + translate_string(30267) + get_filtered_items_count_text(), url)
+    # All Movies
+    path = get_valence_url('/libraries/items', base_params)
+    
+    if settings.getSetting("interface_mode") == "1":
+        get_content(path, {"media_type": "movies"})
+        return
 
-    # Recently added
-    params = {}
-    params.update(base_params)
-    params["Recursive"] = True
-    params["SortBy"] = "DateCreated"
-    params["SortOrder"] = "Descending"
-    params["Filters"] = "IsNotFolder"
+    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=movies"
+    add_menu_directory_item(translate_string(30256) + translate_string(30405), url)
+
+    # Favorite Movies
+    fav_params = base_params.copy()
+    fav_params['filters'] = 'favorite'
+    path = get_valence_url('/libraries/items', fav_params)
+    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=movies"
+    add_menu_directory_item(translate_string(30414), url)
+
+    # Unwatched Movies
+    unwatched_params = base_params.copy()
+    unwatched_params['filters'] = 'unplayed'
+    path = get_valence_url('/libraries/items', unwatched_params)
+    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=movies"
+    add_menu_directory_item(translate_string(30285), url)
+
+    # Recently Added
+    recent_params = base_params.copy()
     if hide_watched:
-        params["IsPlayed"] = False
-    params["Limit"] = item_limit
-    path = get_jellyfin_url("/Users/{userid}/Items", params)
-    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=homevideos"
-    add_menu_directory_item(view_name + translate_string(30268) + get_filtered_items_count_text(), url)
+        recent_params['filters'] = 'unplayed'
+    recent_params['sort'] = 'addedAt'
+    recent_params['sortOrder'] = 'desc'
+    path = get_valence_url('/libraries/items', recent_params)
+    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=movies&sort=none"
+    add_menu_directory_item(translate_string(30268) + get_filtered_items_count_text(), url)
+
+    # Genres
+    path = "plugin://plugin.video.valencecon/?mode=GENRES&kind=movies"
+    add_menu_directory_item(translate_string(30325), path)
+
+    # Alpha Picker
+    path = "plugin://plugin.video.valencecon/?mode=MOVIE_ALPHA"
+    add_menu_directory_item(translate_string(30404), path)
+
+    xbmcplugin.endOfDirectory(handle)
+
+
+def display_global_tvshows(params):
+    """Display global TV show lists across all show libraries"""
+    handle = int(sys.argv[1])
+    item_limit = settings.getSetting("show_x_filtered_items")
+
+    libraries = api.get_libraries()
+    show_libs = [l for l in libraries if l.get('kind') in ['shows', 'anime']] if libraries else []
+
+    if not show_libs:
+        xbmcplugin.endOfDirectory(handle)
+        return
+
+    lib_ids = ','.join([l['id'] for l in show_libs])
+    
+    base_params = {
+        'limit': item_limit,
+        'fields': get_default_filters(),
+        'libraryIds': lib_ids,
+    }
+
+    # All TV Shows
+    path = get_valence_url('/libraries/shows', base_params)
+    
+    if settings.getSetting("interface_mode") == "1":
+        get_content(path, {"media_type": "tvshows"})
+        return
+
+    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=tvshows"
+    add_menu_directory_item(translate_string(30261) + translate_string(30405), url)
+
+    # Next Up Episodes
+    next_up_params = {
+        'limit': item_limit,
+        'type': 'episode',
+        'libraryIds': lib_ids,
+        'sort': 'datePlayed',
+        'sortOrder': 'desc',
+        'fields': get_default_filters(),
+    }
+    path = get_valence_url('/libraries/items', next_up_params)
+    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=Episodes&sort=none"
+    url += "&name_format=" + quote('Episode|episode_name_format')
+    add_menu_directory_item(translate_string(30278) + get_filtered_items_count_text(), url)
+
+    # Genres
+    path = "plugin://plugin.video.valencecon/?mode=GENRES&kind=shows"
+    add_menu_directory_item(translate_string(30325), path)
+
+    # Alpha picker
+    path = "plugin://plugin.video.valencecon/?mode=TVSHOW_ALPHA"
+    add_menu_directory_item(translate_string(30404), path)
 
     xbmcplugin.endOfDirectory(handle)
 
 
 def display_addon_menu(params):
-
-    add_menu_directory_item(translate_string(30246), "plugin://plugin.video.jellycon/?mode=SEARCH")
-    add_menu_directory_item(translate_string(30017), "plugin://plugin.video.jellycon/?mode=SHOW_SERVER_SESSIONS")
-    add_menu_directory_item(translate_string(30012), "plugin://plugin.video.jellycon/?mode=CHANGE_USER")
-    add_menu_directory_item(translate_string(30011), "plugin://plugin.video.jellycon/?mode=DETECT_SERVER_USER")
-    add_menu_directory_item(translate_string(30435), "plugin://plugin.video.jellycon/?mode=DETECT_CONNECTION_SPEED")
-    add_menu_directory_item(translate_string(30254), "plugin://plugin.video.jellycon/?mode=SHOW_SETTINGS")
-    add_menu_directory_item(translate_string(30395), "plugin://plugin.video.jellycon/?mode=CLEAR_CACHE")
-    add_menu_directory_item(translate_string(30293), "plugin://plugin.video.jellycon/?mode=CACHE_ARTWORK")
-    add_menu_directory_item("Clone default skin", "plugin://plugin.video.jellycon/?mode=CLONE_SKIN")
+    add_menu_directory_item(translate_string(30246), "plugin://plugin.video.valencecon/?mode=SEARCH")
+    add_menu_directory_item(translate_string(30017), "plugin://plugin.video.valencecon/?mode=SHOW_SERVER_SESSIONS")
+    add_menu_directory_item(translate_string(30012), "plugin://plugin.video.valencecon/?mode=CHANGE_PROFILE")
+    add_menu_directory_item(translate_string(30011), "plugin://plugin.video.valencecon/?mode=DETECT_SERVER")
+    add_menu_directory_item(translate_string(30435), "plugin://plugin.video.valencecon/?mode=DETECT_CONNECTION_SPEED")
+    add_menu_directory_item(translate_string(30254), "plugin://plugin.video.valencecon/?mode=SHOW_SETTINGS")
+    add_menu_directory_item(translate_string(30395), "plugin://plugin.video.valencecon/?mode=CLEAR_CACHE")
+    add_menu_directory_item(translate_string(30293), "plugin://plugin.video.valencecon/?mode=CACHE_ARTWORK")
+    add_menu_directory_item("Clone default skin", "plugin://plugin.video.valencecon/?mode=CLONE_SKIN")
 
     handle = int(sys.argv[1])
-    xbmcplugin.endOfDirectory(handle)
-
-
-def display_tvshow_type(menu_params, view):
-    handle = int(sys.argv[1])
-
-    view_name = translate_string(30261)
-    if view is not None:
-        view_name = view.get("Name")
-
-    item_limit = settings.getSetting("show_x_filtered_items")
-
-    # All TV Shows
-    base_params = {
-        "Fields": get_default_filters(),
-        "ImageTypeLimit": 1,
-        "IsMissing": False,
-        "IncludeItemTypes": "Series",
-        "Recursive": True
-    }
-    if view is not None:
-        base_params["ParentId"] = view.get("Id")
-    path = get_jellyfin_url("/Users/{userid}/Items", base_params)
-
-    if settings.getSetting("interface_mode") == "1":
-        get_content(path, { "media_type": "tvshows" })
-        return
-
-    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=tvshows"
-    add_menu_directory_item(view_name + translate_string(30405), url)
-
-    # Favorite TV Shows
-    params = {}
-    params.update(base_params)
-    params["Filters"] = "IsFavorite"
-    path = get_jellyfin_url("/Users/{userid}/Items", params)
-    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=tvshows"
-    add_menu_directory_item(view_name + translate_string(30414), url)
-
-    # Tv Shows with unplayed
-    params = {}
-    params.update(base_params)
-    params["IsPlayed"] = False
-    path = get_jellyfin_url("/Users/{userid}/Items", params)
-    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=tvshows"
-    add_menu_directory_item(view_name + translate_string(30285), url)
-
-    # Totally unwatched tv shows
-    params = {}
-    params.update(base_params)
-    params["IsPlayed"] = False       
-    path = get_jellyfin_url("/Users/{userid}/Items", params)
-    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=tvshows&OnlyTotallyUnwatchedTvShow=1"
-    add_menu_directory_item(view_name + translate_string(30454), url)
-
-    # In progress episodes
-    params = {}
-    params.update(base_params)
-    params["Limit"] = item_limit
-    params["SortBy"] = "DatePlayed"
-    params["SortOrder"] = "Descending"
-    params["Filters"] = "IsResumable"
-    params["IncludeItemTypes"] = "Episode"
-    path = get_jellyfin_url("/Users/{userid}/Items", params)
-    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=Episodes&sort=none"
-    url += "&name_format=" + quote('Episode|episode_name_format')
-    add_menu_directory_item(view_name + translate_string(30267) + get_filtered_items_count_text(), url)
-
-    # Latest Episodes
-    params = {}
-    params.update(base_params)
-    params["Limit"] = item_limit
-    params["SortBy"] = "DateCreated"
-    params["SortOrder"] = "Descending"
-    params["IncludeItemTypes"] = "Episode"
-    path = get_jellyfin_url("/Users/{userid}/Items/Latest", params)
-    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=tvshows&sort=none"
-    add_menu_directory_item(view_name + translate_string(30288) + get_filtered_items_count_text(), url)
-
-    # Recently Added
-    params = {}
-    params.update(base_params)
-    params["Limit"] = item_limit
-    params["SortBy"] = "DateCreated"
-    params["SortOrder"] = "Descending"
-    params["Filters"] = "IsNotFolder"
-    params["IncludeItemTypes"] = "Episode"
-    path = get_jellyfin_url("/Users/{userid}/Items", params)
-    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=Episodes&sort=none"
-    url += "&name_format=" + quote('Episode|episode_name_format')
-    add_menu_directory_item(view_name + translate_string(30268) + get_filtered_items_count_text(), url)
-
-    # Next Up Episodes
-    params = {}
-    params.update(base_params)
-    params["Limit"] = item_limit
-    params["Userid"] = '{userid}'
-    params["SortBy"] = "DateCreated"
-    params["SortOrder"] = "Descending"
-    params["Filters"] = "IsNotFolder"
-    params["IncludeItemTypes"] = "Episode"
-    path = get_jellyfin_url("/Shows/NextUp", params)
-    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=Episodes&sort=none"
-    url += "&name_format=" + quote('Episode|episode_name_format')
-    add_menu_directory_item(view_name + translate_string(30278) + get_filtered_items_count_text(), url)
-
-    # TV Show Genres
-    path = "plugin://plugin.video.jellycon/?mode=GENRES&item_type=tvshow"
-    if view is not None:
-        path += "&parent_id=" + view.get("Id")
-    add_menu_directory_item(view_name + translate_string(30325), path)
-
-    # TV Show Alpha picker
-    path = "plugin://plugin.video.jellycon/?mode=TVSHOW_ALPHA"
-    if view is not None:
-        path += "&parent_id=" + view.get("Id")
-    add_menu_directory_item(view_name + translate_string(30404), path)
-
-    xbmcplugin.endOfDirectory(handle)
-
-
-def display_music_type(menu_params, view):
-    handle = int(sys.argv[1])
-    view_name = view.get("Name")
-
-    item_limit = settings.getSetting("show_x_filtered_items")
-
-    # all albums
-    params = {
-        "ParentId": view.get("Id"),
-        "Recursive": True,
-        "ImageTypeLimit": 1,
-        "IncludeItemTypes": "MusicAlbum"
-    }
-    path = get_jellyfin_url("/Users/{userid}/Items", params)
-
-    if settings.getSetting("interface_mode") == "1":
-        get_content(path, { "media_type": "MusicAlbums" })
-        return
-
-    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=MusicAlbums"
-    add_menu_directory_item(view_name + translate_string(30320), url)
-
-    # recently added
-    params = {
-        "ParentId": view.get("Id"),
-        "ImageTypeLimit": 1,
-        "IncludeItemTypes": "Audio",
-        "Limit": item_limit
-    }
-    path = get_jellyfin_url("/Users/{userid}/Items/Latest", params)
-    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=MusicAlbums"
-    add_menu_directory_item(view_name + translate_string(30268) + get_filtered_items_count_text(), url)
-
-    # recently played
-    params = {
-        "ParentId": view.get("Id"),
-        "Recursive": True,
-        "ImageTypeLimit": 1,
-        "IncludeItemTypes": "Audio",
-        "Limit": item_limit,
-        "IsPlayed": True,
-        "SortBy": "DatePlayed",
-        "SortOrder": "Descending"
-    }
-    path = get_jellyfin_url("/Users/{userid}/Items", params)
-    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=MusicAlbum"
-    add_menu_directory_item(view_name + translate_string(30349) + get_filtered_items_count_text(), url)
-
-    # most played
-    params = {
-        "ParentId": view.get("Id"),
-        "Recursive": True,
-        "ImageTypeLimit": 1,
-        "IncludeItemTypes": "Audio",
-        "Limit": item_limit,
-        "IsPlayed": True,
-        "SortBy": "PlayCount",
-        "SortOrder": "Descending"
-    }
-    path = get_jellyfin_url("/Users/{userid}/Items", params)
-    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=MusicAlbum"
-    add_menu_directory_item(view_name + translate_string(30353) + get_filtered_items_count_text(), url)
-
-    # artists
-    params = {
-        "ParentId": view.get("Id"),
-        "Recursive": True,
-        "ImageTypeLimit": 1
-    }
-    path = get_jellyfin_url("/Artists/AlbumArtists", params)
-    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=MusicArtists"
-    add_menu_directory_item(view_name + translate_string(30321), url)
-
-    # genres
-    path = "plugin://plugin.video.jellycon/?mode=GENRES&item_type=MusicAlbum"
-    if view is not None:
-        path += "&parent_id=" + view.get("Id")
-    add_menu_directory_item(view_name + translate_string(30325), path)
-
-    # Artist Alpha picker
-    path = "plugin://plugin.video.jellycon/?mode=ARTIST_ALPHA"
-    if view is not None:
-        path += "&parent_id=" + view.get("Id")
-    add_menu_directory_item('{} - {}{}'.format(
-        view_name, translate_string(30323), translate_string(30404)), path)
-
-    # Shuffle All
-    path = "plugin://plugin.video.jellycon/?mode=PLAY&action=shuffle"
-    if view is not None:
-        path += "&item_id=" + view.get("Id")
-    add_menu_directory_item('{} - {}'.format(
-        view_name, translate_string(30448)), path, False)
-
-    xbmcplugin.endOfDirectory(handle)
-
-
-def display_musicvideos_type(params, view):
-    handle = int(sys.argv[1])
-    xbmcplugin.setContent(handle, 'files')
-
-    view_name = view.get("Name")
-
-    # artists
-    params = {
-        "ParentId": view.get("Id"),
-        "Recursive": False,
-        "ImageTypeLimit": 1,
-        "IsMissing": False,
-        "Fields": get_default_filters()
-    }
-    path = get_jellyfin_url("/Users/{userid}/Items", params)
-    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=musicvideos"
-    add_menu_directory_item(view_name + translate_string(30405), url)
-
-    xbmcplugin.endOfDirectory(handle)
-
-
-def display_livetv_type(menu_params, view):
-    handle = int(sys.argv[1])
-    xbmcplugin.setContent(handle, 'files')
-
-    view_name = view.get("Name")
-
-    # channels
-    params = {
-        "UserId": '{userid}',
-        "Recursive": False,
-        "ImageTypeLimit": 1,
-        "Fields": get_default_filters()
-    }
-    path = get_jellyfin_url("/LiveTv/Channels", params)
-    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=livetv"
-    add_menu_directory_item(view_name + translate_string(30360), url)
-
-    # programs
-    params = {
-        "UserId": '{userid}',
-        "IsAiring": True,
-        "ImageTypeLimit": 1,
-        "Fields": get_default_filters() + ",ChannelInfo",
-        "EnableTotalRecordCount": False
-    }
-    path = get_jellyfin_url("/LiveTv/Programs/Recommended", params)
-    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=livetv"
-    add_menu_directory_item(view_name + translate_string(30361), url)
-
-    # recordings
-    params = {
-        "UserId": '{userid}',
-        "Recursive": False,
-        "ImageTypeLimit": 1,
-        "Fields": get_default_filters(),
-        "EnableTotalRecordCount": False
-    }
-    path = get_jellyfin_url("/LiveTv/Recordings", params)
-    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=livetv"
-    add_menu_directory_item(view_name + translate_string(30362), url)
-
-    xbmcplugin.endOfDirectory(handle)
-
-
-def display_movies_type(menu_params, view):
-    handle = int(sys.argv[1])
-    xbmcplugin.setContent(handle, 'files')
-
-    view_name = translate_string(30256)
-    if view is not None:
-        view_name = view.get("Name")
-
-    item_limit = settings.getSetting("show_x_filtered_items")
-    group_movies = settings.getSetting('group_movies') == "true"
-    hide_watched = settings.getSetting("hide_watched") == "true"
-
-    base_params = {
-        "IncludeItemTypes": "Movie",
-        "CollapseBoxSetItems": group_movies,
-        "GroupItemsIntoCollections": group_movies,
-        "Recursive": True,
-        "IsMissing": False,
-        "Fields": get_default_filters(),
-        "ImageTypeLimit": 1
-    }
-    if view is not None:
-        base_params["ParentId"] = view.get("Id")
-
-    # All Movies
-    path = get_jellyfin_url("/Users/{userid}/Items", base_params)
-
-    if settings.getSetting("interface_mode") == "1":
-        get_content(path, { "media_type": "movies" })
-        return
-
-    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=movies"
-    add_menu_directory_item('{}{}'.format(view_name, translate_string(30405)), url)
-
-    # Favorite Movies
-    params = {}
-    params.update(base_params)
-    params["CollapseBoxSetItems"] = False
-    params["GroupItemsIntoCollections"] = False
-    params["Filters"] = "IsFavorite"
-    path = get_jellyfin_url("/Users/{userid}/Items", params)
-    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=movies"
-    add_menu_directory_item('{}{}'.format(view_name, translate_string(30414)), url)
-
-    # Unwatched Movies
-    params = {}
-    params.update(base_params)
-    params["CollapseBoxSetItems"] = False
-    params["GroupItemsIntoCollections"] = False
-    params["IsPlayed"] = False
-    path = get_jellyfin_url("/Users/{userid}/Items", params)
-    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=movies"
-    add_menu_directory_item('{}{}'.format(view_name, translate_string(30285)), url)
-
-    # Recently Watched Movies
-    params = {}
-    params.update(base_params)
-    params["IsPlayed"] = True
-    params["SortBy"] = "DatePlayed"
-    params["SortOrder"] = "Descending"
-    params["CollapseBoxSetItems"] = False
-    params["GroupItemsIntoCollections"] = False
-    params["Limit"] = item_limit
-    path = get_jellyfin_url("/Users/{userid}/Items", params)
-    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=movies&sort=none"
-    add_menu_directory_item(('{}{}{}').format(view_name, translate_string(30349), get_filtered_items_count_text()), url)
-
-    # Resumable Movies
-    params = {}
-    params.update(base_params)
-    params["Filters"] = "IsResumable"
-    params["SortBy"] = "DatePlayed"
-    params["SortOrder"] = "Descending"
-    params["Limit"] = item_limit
-    path = get_jellyfin_url("/Users/{userid}/Items", params)
-    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=movies&sort=none"
-    add_menu_directory_item(('{}{}{}').format(view_name, translate_string(30267), get_filtered_items_count_text()), url)
-
-    # Recently Added Movies
-    params = {}
-    params.update(base_params)
-    if hide_watched:
-        params["IsPlayed"] = False
-    params["SortBy"] = "DateCreated"
-    params["SortOrder"] = "Descending"
-    params["Filters"] = "IsNotFolder"
-    params["Limit"] = item_limit
-    path = get_jellyfin_url("/Users/{userid}/Items", params)
-    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=movies&sort=none"
-    add_menu_directory_item(('{}{}{}').format(view_name, translate_string(30268), get_filtered_items_count_text()), url)
-
-    # Collections
-    params = {}
-    if view is not None:
-        params["ParentId"] = view.get("Id")
-    params["Fields"] = get_default_filters()
-    params["ImageTypeLimit"] = 1
-    params["IncludeItemTypes"] = "Boxset"
-    params["Recursive"] = True
-    path = get_jellyfin_url("/Users/{userid}/Items", params)
-    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=boxsets"
-    add_menu_directory_item('{}{}'.format(view_name, translate_string(30410)), url)
-
-    # Favorite Collections
-    params["Filters"] = "IsFavorite"
-    path = get_jellyfin_url("/Users/{userid}/Items", params)
-    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=boxsets"
-    add_menu_directory_item('{}{}'.format(view_name, translate_string(30415)), url)
-
-    # Genres
-    path = "plugin://plugin.video.jellycon/?mode=GENRES&item_type=movie"
-    if view is not None:
-        path += "&parent_id=" + view.get("Id")
-    add_menu_directory_item('{}{}'.format(view_name, translate_string(30325)), path)
-
-    # Pages
-    path = "plugin://plugin.video.jellycon/?mode=MOVIE_PAGES"
-    if view is not None:
-        path += "&parent_id=" + view.get("Id")
-    add_menu_directory_item('{}{}'.format(view_name, translate_string(30397)), path)
-
-    # Alpha Picker
-    path = "plugin://plugin.video.jellycon/?mode=MOVIE_ALPHA"
-    if view is not None:
-        path += "&parent_id=" + view.get("Id")
-    add_menu_directory_item('{}{}'.format(view_name, translate_string(30404)), path)
-
-    # Years
-    path = "plugin://plugin.video.jellycon/?mode=SHOW_ADDON_MENU&type=show_movie_years"
-    if view is not None:
-        path += "&parent_id=" + view.get("Id")
-    add_menu_directory_item('{}{}'.format(view_name, translate_string(30411)), path)
-
-    # Decades
-    path = "plugin://plugin.video.jellycon/?mode=SHOW_ADDON_MENU&type=show_movie_years&group=true"
-    if view is not None:
-        path += "&parent_id=" + view.get("Id")
-    add_menu_directory_item('{}{}'.format(view_name, translate_string(30412)), path)
-
-    # Tags
-    path = "plugin://plugin.video.jellycon/?mode=SHOW_ADDON_MENU&type=show_movie_tags"
-    if view is not None:
-        path += "&parent_id=" + view.get("Id")
-    add_menu_directory_item('{}{}'.format(view_name, translate_string(30413)), path)
-
-    xbmcplugin.endOfDirectory(handle)
-
-
-def display_mixed_type(params, view):
-    handle = int(sys.argv[1])
-
-    view_name = translate_string(30261)
-    if view is not None:
-        view_name = view.get("Name")
-
-    item_limit = settings.getSetting("show_x_filtered_items")
-
-    # All Mixed content
-    base_params = {
-        "Fields": get_default_filters(),
-        "ImageTypeLimit": 1,
-        "IsMissing": False,
-        "IncludeItemTypes": "Series,Movie",
-        "Recursive": True
-    }
-    if view is not None:
-        base_params["ParentId"] = view.get("Id")
-    path = get_jellyfin_url("/Users/{userid}/Items", base_params)
-
-    if settings.getSetting("interface_mode") == "1":
-        get_content(path, { "media_type": "mixed" })
-        return
-
-    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=mixed"
-    add_menu_directory_item(view_name + translate_string(30405), url)
-
-    # Favorite Mixed
-    params = {}
-    params.update(base_params)
-    params["Filters"] = "IsFavorite"
-    path = get_jellyfin_url("/Users/{userid}/Items", params)
-    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=mixed"
-    add_menu_directory_item(view_name + translate_string(30414), url)
-
-    # Unplayed Mixed
-    params = {}
-    params.update(base_params)
-    params["IsPlayed"] = False
-    path = get_jellyfin_url("/Users/{userid}/Items", params)
-    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=mixed"
-    add_menu_directory_item(view_name + translate_string(30285), url)
-
-    # In progress mixed
-    params = {}
-    params.update(base_params)
-    params["Limit"] = item_limit
-    params["SortBy"] = "DatePlayed"
-    params["SortOrder"] = "Descending"
-    params["Filters"] = "IsResumable"
-    params["IncludeItemTypes"] = "Episode"
-    path = get_jellyfin_url("/Users/{userid}/Items", params)
-    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=mixed&sort=none"
-    url += "&name_format=" + quote('Episode|episode_name_format')
-    add_menu_directory_item(view_name + translate_string(30267) + get_filtered_items_count_text(), url)
-
-    # Latest mixed
-    params = {}
-    params.update(base_params)
-    params["Limit"] = item_limit
-    params["SortBy"] = "DateCreated"
-    params["SortOrder"] = "Descending"
-    params["IncludeItemTypes"] = "Episode"
-    path = get_jellyfin_url("/Users/{userid}/Items/Latest", params)
-    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=mixed&sort=none"
-    add_menu_directory_item(view_name + translate_string(30288) + get_filtered_items_count_text(), url)
-
-    # Recently Added
-    params = {}
-    params.update(base_params)
-    params["Limit"] = item_limit
-    params["SortBy"] = "DateCreated"
-    params["SortOrder"] = "Descending"
-    params["Filters"] = "IsNotFolder"
-    params["IncludeItemTypes"] = "Episode"
-    path = get_jellyfin_url("/Users/{userid}/Items", params)
-    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=mixed&sort=none"
-    url += "&name_format=" + quote('Episode|episode_name_format')
-    add_menu_directory_item(view_name + translate_string(30268) + get_filtered_items_count_text(), url)
-
-    # Next Up Episodes
-    params = {}
-    params.update(base_params)
-    params["Limit"] = item_limit
-    params["Userid"] = '{userid}'
-    params["SortBy"] = "DateCreated"
-    params["SortOrder"] = "Descending"
-    params["Filters"] = "IsNotFolder"
-    params["IncludeItemTypes"] = "Episode"
-    path = get_jellyfin_url("/Shows/NextUp", params)
-    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=Episodes&sort=none"
-    url += "&name_format=" + quote('Episode|episode_name_format')
-    add_menu_directory_item(view_name + translate_string(30278) + get_filtered_items_count_text(), url)
-
-    # Mixed Genres
-    path = "plugin://plugin.video.jellycon/?mode=GENRES&item_type=mixed"
-    if view is not None:
-        path += "&parent_id=" + view.get("Id")
-    add_menu_directory_item(view_name + translate_string(30325), path)
-
-    # Mixed Alpha picker
-    path = "plugin://plugin.video.jellycon/?mode=TVSHOW_ALPHA"
-    if view is not None:
-        path += "&parent_id=" + view.get("Id")
-    add_menu_directory_item(view_name + translate_string(30404), path)
-
     xbmcplugin.endOfDirectory(handle)
 
 
 def display_library_views(params):
+    """Display Valence libraries as main menu items"""
     handle = int(sys.argv[1])
     xbmcplugin.setContent(handle, 'files')
 
     server = settings.getSetting('server_address')
     if server is None:
         return
-    user_id = get_current_user_id()
 
-    views_url = "/Users/{}/Views?format=json".format(user_id)
-    views = api.get(views_url)
-    if not views:
-        return []
-    views = views.get("Items", [])
+    libraries = api.get_libraries()
+    if not libraries:
+        return
 
-    view_types = ["movies", "tvshows", "homevideos", "boxsets", "playlists", "music", "musicvideos", "livetv", "Channel", "mixed"]
+    item_limit = settings.getSetting("show_x_filtered_items")
 
-    for view in views:
-        collection_type = view.get('CollectionType', 'mixed')
-        item_type = view.get('Type', None)
-        if collection_type in view_types or item_type == "Channel":
-            view_name = view.get("Name")
-            art = get_art(item=view, server=server)
-            art['landscape'] = get_art_url(view, "Primary", server=server)
+    for library in libraries:
+        library_kind = library.get('kind', 'mixed')
+        view_name = library.get("Name")
+        art = get_art(item=library, server=server)
+        art['landscape'] = get_art_url(library, "Primary", server=server)
 
-            plugin_path = "plugin://plugin.video.jellycon/?mode=SHOW_ADDON_MENU&type=library_item&view_id=" + view.get("Id")
+        plugin_path = "plugin://plugin.video.valencecon/?mode=SHOW_ADDON_MENU&type=library_item&library_id=" + library.get("Id")
 
-            if collection_type == "playlists":
-                plugin_path = get_playlist_path(view)
-            elif collection_type == "boxsets":
-                plugin_path = get_collection_path(view)
-            elif collection_type is None and view.get('Type', None) == "Channel":
-                plugin_path = get_channel_path(view)
-
-            add_menu_directory_item(view_name, plugin_path, art=art)
+        add_menu_directory_item(view_name, plugin_path, art=art)
 
     xbmcplugin.endOfDirectory(handle)
 
 
-def get_playlist_path(view_info):
-    params = {
-        "ParentId": view_info.get("Id"),
-        "Fields": get_default_filters(),
-        "ImageTypeLimit": 1
-    }
-
-    path = get_jellyfin_url("/Users/{userid}/Items", params)
-    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=playlists"
-    return url
-
-
-def get_collection_path(view_info):
-    params = {
-        "ParentId": view_info.get("Id"),
-        "Fields": get_default_filters(),
-        "ImageTypeLimit": 1,
-        "IncludeItemTypes": "Boxset",
-        "CollapseBoxSetItems": True,
-        "GroupItemsIntoCollections": True,
-        "Recursive": True,
-        "IsMissing": False
-    }
-
-    path = get_jellyfin_url("/Users/{userid}/Items", params)
-    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=boxsets"
-    return url
-
-
-def get_channel_path(view):
-    params = {
-        "ParentId": view.get("Id"),
-        "IsMissing": False,
-        "ImageTypeLimit": 1,
-        "Fields": get_default_filters()
-    }
-
-    path = get_jellyfin_url("/Users/{userid}/Items", params)
-    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=files"
-    return url
-
-
 def display_library_view(params):
-    node_id = params.get("view_id")
-    user_id = get_current_user_id()
+    """Display a specific library's content"""
+    library_id = params.get("library_id")
+    if not library_id:
+        return
 
-    view_info_url = "/Users/{}/Items/".format(user_id) + node_id
-    view_info = api.get(view_info_url)
-
-    log.debug("VIEW_INFO : {0}".format(view_info))
-
-    collection_type = view_info.get("CollectionType", "mixed")
-
-    if collection_type == "movies":
-        display_movies_type(params, view_info)
-    elif collection_type == "tvshows":
-        display_tvshow_type(params, view_info)
-    elif collection_type == "homevideos":
-        display_homevideos_type(params, view_info)
-    elif collection_type == "music":
-        display_music_type(params, view_info)
-    elif collection_type == "musicvideos":
-        display_musicvideos_type(params, view_info)
-    elif collection_type == "livetv":
-        display_livetv_type(params, view_info)
-    elif collection_type == "mixed":
-        display_mixed_type(params, view_info)
-
-
-def show_widgets():    
-    add_menu_directory_item("All Movies",
-                            'plugin://plugin.video.jellycon/library/movies')
+    libraries = api.get_libraries()
+    library = next((l for l in libraries if l.get('id') == library_id), None)
     
+    if not library:
+        return
+
+    library_kind = library.get('kind', 'mixed')
+    view_name = library.get("Name")
+    item_limit = settings.getSetting("show_x_filtered_items")
+
+    if library_kind in ['movies', 'shows', 'anime']:
+        display_movies_or_shows_type(library, view_name, item_limit)
+    elif library_kind == 'music':
+        display_music_type(params, library)
+    elif library_kind == 'books':
+        display_books_type(params, library)
+    elif library_kind == 'livetv':
+        display_livetv_type(params, library)
+
+
+def show_widgets():
+    """Widget content for home screen"""
+    add_menu_directory_item("All Movies",
+                            'plugin://plugin.video.valencecon/library/movies')
+
     item_limit_text = get_filtered_items_count_text()
 
     add_menu_directory_item(translate_string(30257) + item_limit_text,
-                            'plugin://plugin.video.jellycon/?mode=WIDGET_CONTENT&type=recent_movies')
+                            'plugin://plugin.video.valencecon/?mode=WIDGET_CONTENT&type=recent_movies')
     add_menu_directory_item(translate_string(30258) + item_limit_text,
-                            'plugin://plugin.video.jellycon/?mode=WIDGET_CONTENT&type=inprogress_movies')
+                            'plugin://plugin.video.valencecon/?mode=WIDGET_CONTENT&type=inprogress_movies')
     add_menu_directory_item(translate_string(30269) + item_limit_text,
-                            'plugin://plugin.video.jellycon/?mode=WIDGET_CONTENT&type=random_movies')
+                            'plugin://plugin.video.valencecon/?mode=WIDGET_CONTENT&type=random_movies')
     add_menu_directory_item(translate_string(30403) + item_limit_text,
-                            'plugin://plugin.video.jellycon/?mode=WIDGET_CONTENT&type=movie_recommendations')
+                            'plugin://plugin.video.valencecon/?mode=WIDGET_CONTENT&type=movie_recommendations')
 
     add_menu_directory_item(translate_string(30287) + item_limit_text,
-                            'plugin://plugin.video.jellycon/?mode=WIDGET_CONTENT&type=recent_tvshows')
+                            'plugin://plugin.video.valencecon/?mode=WIDGET_CONTENT&type=recent_tvshows')
     add_menu_directory_item(translate_string(30455) + item_limit_text,
-                            'plugin://plugin.video.jellycon/?mode=WIDGET_CONTENT&type=random_tvshows')
+                            'plugin://plugin.video.valencecon/?mode=WIDGET_CONTENT&type=random_tvshows')
     add_menu_directory_item(translate_string(30263) + item_limit_text,
-                            'plugin://plugin.video.jellycon/?mode=WIDGET_CONTENT&type=recent_episodes')
+                            'plugin://plugin.video.valencecon/?mode=WIDGET_CONTENT&type=recent_episodes')
     add_menu_directory_item(translate_string(30264) + item_limit_text,
-                            'plugin://plugin.video.jellycon/?mode=WIDGET_CONTENT&type=inprogress_episodes')
+                            'plugin://plugin.video.valencecon/?mode=WIDGET_CONTENT&type=inprogress_episodes')
     add_menu_directory_item(translate_string(30265) + item_limit_text,
-                            'plugin://plugin.video.jellycon/?mode=WIDGET_CONTENT&type=nextup_episodes')
+                            'plugin://plugin.video.valencecon/?mode=WIDGET_CONTENT&type=nextup_episodes')
     add_menu_directory_item(translate_string(30457) + item_limit_text,
-                            'plugin://plugin.video.jellycon/?mode=WIDGET_CONTENT&type=recent_all')
+                            'plugin://plugin.video.valencecon/?mode=WIDGET_CONTENT&type=recent_all')
     add_menu_directory_item(translate_string(30458),
-                            'plugin://plugin.video.jellycon/?mode=WIDGET_CONTENT&type=favorites_all')
+                            'plugin://plugin.video.valencecon/?mode=WIDGET_CONTENT&type=favorites_all')
     add_menu_directory_item(translate_string(30456) + item_limit_text,
-                            'plugin://plugin.video.jellycon/?mode=WIDGET_CONTENT&type=random_all')
+                            'plugin://plugin.video.valencecon/?mode=WIDGET_CONTENT&type=random_all')
 
     xbmcplugin.endOfDirectory(int(sys.argv[1]))
 
 
 def show_search():
-    add_menu_directory_item(translate_string(30231), 'plugin://plugin.video.jellycon/?mode=NEW_SEARCH&item_type=Movie')
-    add_menu_directory_item(translate_string(30229), 'plugin://plugin.video.jellycon/?mode=NEW_SEARCH&item_type=Series')
-    add_menu_directory_item(translate_string(30235), 'plugin://plugin.video.jellycon/?mode=NEW_SEARCH&item_type=Episode')
-    add_menu_directory_item(translate_string(30337), 'plugin://plugin.video.jellycon/?mode=NEW_SEARCH&item_type=Audio')
-    add_menu_directory_item(translate_string(30338), 'plugin://plugin.video.jellycon/?mode=NEW_SEARCH&item_type=MusicAlbum')
-    add_menu_directory_item(translate_string(30339), 'plugin://plugin.video.jellycon/?mode=NEW_SEARCH&item_type=Person')
+    add_menu_directory_item(translate_string(30231), 'plugin://plugin.video.valencecon/?mode=NEW_SEARCH&item_type=Movie')
+    add_menu_directory_item(translate_string(30229), 'plugin://plugin.video.valencecon/?mode=NEW_SEARCH&item_type=Series')
+    add_menu_directory_item(translate_string(30235), 'plugin://plugin.video.valencecon/?mode=NEW_SEARCH&item_type=Episode')
+    add_menu_directory_item(translate_string(30337), 'plugin://plugin.video.valencecon/?mode=NEW_SEARCH&item_type=Audio')
+    add_menu_directory_item(translate_string(30338), 'plugin://plugin.video.valencecon/?mode=NEW_SEARCH&item_type=MusicAlbum')
+    add_menu_directory_item(translate_string(30339), 'plugin://plugin.video.valencecon/?mode=NEW_SEARCH&item_type=Person')
 
     xbmcplugin.endOfDirectory(int(sys.argv[1]))
+
+
+# Placeholder functions for compatibility - will be implemented in Valence style
+def show_movie_years(menu_params):
+    """Show movie years - uses library-facets"""
+    library_id = menu_params.get("library_id")
+    log.debug("show_movie_years for library: {}".format(library_id))
+    # For now, redirect to genres or use decades from facets
+    facets = api.get_library_facets()
+    decades = facets.get('decades', []) if facets else []
+    
+    handle = int(sys.argv[1])
+    xbmcplugin.setContent(handle, 'years')
+    
+    params = {
+        'fields': get_default_filters(),
+        'limit': settings.getSetting("show_x_filtered_items"),
+    }
+    if library_id:
+        params['libraryIds'] = library_id
+
+    for decade in decades:
+        decade_name = str(decade) + "s"
+        decade_params = params.copy()
+        decade_params['decade'] = decade
+        path = get_valence_url('/libraries/items', decade_params)
+        url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=movies"
+        add_menu_directory_item(decade_name, url)
+
+    xbmcplugin.endOfDirectory(handle)
+
+
+def show_movie_tags(menu_params):
+    """Show movie tags/genres - uses library-facets"""
+    library_id = menu_params.get("library_id")
+    log.debug("show_movie_tags for library: {}".format(library_id))
+    
+    facets = api.get_library_facets()
+    genres = facets.get('genres', []) if facets else []
+    
+    handle = int(sys.argv[1])
+    xbmcplugin.setContent(handle, 'genres')
+    
+    params = {
+        'fields': get_default_filters(),
+        'limit': settings.getSetting("show_x_filtered_items"),
+    }
+    if library_id:
+        params['libraryIds'] = library_id
+
+    for genre in sorted(genres):
+        genre_params = params.copy()
+        genre_params['genre'] = genre
+        path = get_valence_url('/libraries/items', genre_params)
+        url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=movies"
+        add_menu_directory_item(genre, url)
+
+    xbmcplugin.endOfDirectory(handle)
 
 
 def set_library_window_values(force=False):
@@ -1392,7 +719,6 @@ def set_library_window_values(force=False):
     already_set = home_window.get_property("view_item.0.name")
     if not force and already_set:
         return
-    user_id = get_current_user_id()
 
     for index in range(0, 20):
         home_window.clear_property("view_item.%i.name" % index)
@@ -1400,39 +726,36 @@ def set_library_window_values(force=False):
         home_window.clear_property("view_item.%i.type" % index)
         home_window.clear_property("view_item.%i.thumb" % index)
 
-    url = "/Users/{}/Views".format(user_id)
-    result = api.get(url)
-
-    if result is None:
+    libraries = api.get_libraries()
+    if not libraries:
         return
 
-    result = result.get("Items", [])
     server = settings.getSetting('server_address')
 
     index = 0
-    for item in result:
+    for library in libraries:
+        library_kind = library.get('kind', 'mixed')
+        if library_kind in ["movies", "shows", "anime", "music", "books", "livetv"]:
+            name = library.get("Name")
+            library_id = library.get("Id")
 
-        collection_type = item.get("CollectionType", "mixed")
-        if collection_type in ["movies", "boxsets", "music", "tvshows", "mixed"]:
-            name = item.get("Name")
-            item_id = item.get("Id")
-
-            # plugin.video.jellycon-
             prop_name = "view_item.%i.name" % index
             home_window.set_property(prop_name, name)
-            log.debug("set_library_window_values: plugin.video.jellycon-{0}={1}".format(prop_name, name))
+            log.debug("set_library_window_values: plugin.video.valencecon-{0}={1}".format(prop_name, name))
 
             prop_name = "view_item.%i.id" % index
-            home_window.set_property(prop_name, item_id)
-            log.debug("set_library_window_values: plugin.video.jellycon-{0}={1}".format(prop_name, item_id))
+            home_window.set_property(prop_name, library_id)
+            log.debug("set_library_window_values: plugin.video.valencecon-{0}={1}".format(prop_name, library_id))
 
             prop_name = "view_item.%i.type" % index
-            home_window.set_property(prop_name, collection_type)
-            log.debug("set_library_window_values: plugin.video.jellycon-{0}={1}".format(prop_name, collection_type))
+            home_window.set_property(prop_name, library_kind)
+            log.debug("set_library_window_values: plugin.video.valencecon-{0}={1}".format(prop_name, library_kind))
 
-            thumb = get_art_url(item, "Primary", server=server)
+            thumb = get_art_url(library, "Primary", server=server)
             prop_name = "view_item.%i.thumb" % index
             home_window.set_property(prop_name, thumb)
-            log.debug("set_library_window_values: plugin.video.jellycon-{0}={1}".format(prop_name, thumb))
+            log.debug("set_library_window_values: plugin.video.valencecon-{0}={1}".format(prop_name, thumb))
 
             index += 1
+            if index >= 20:
+                break

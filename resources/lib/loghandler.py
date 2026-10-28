@@ -12,7 +12,7 @@ from kodi_six import xbmc, xbmcaddon
 
 from .utils import translate_path
 
-__addon__ = xbmcaddon.Addon(id='plugin.video.jellycon')
+__addon__ = xbmcaddon.Addon(id='plugin.video.valencecon')
 __pluginpath__ = translate_path(__addon__.getAddonInfo('path'))
 
 
@@ -43,7 +43,7 @@ class LogHandler(logging.StreamHandler):
 
             # Hide server URL in logs
             string = string.replace(
-                self.server or "{server}", "{jellyfin-server}"
+                self.server or "{server}", "{valence-server}"
             )
 
             py_version = sys.version_info.major
@@ -129,7 +129,7 @@ def get_filesystem_encoding():
     return enc
 
 
-__LOGGER = logging.getLogger('JELLYFIN')
+__LOGGER = logging.getLogger('VALENCECON')
 for handler in __LOGGER.handlers:
     __LOGGER.removeHandler(handler)
 

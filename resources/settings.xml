@@ -3,19 +3,16 @@
 	<category label="30014">
 
 		<setting label="30388" type="lsep"/>
-		<setting label="30011" type="action" action="RunScript(plugin.video.jellycon,0,?mode=DETECT_SERVER_USER)" option="close"/>
-		<setting id="ipaddress" type="text" label="30000" default="" visible="false" enable="false" />
-		<setting id="protocol" type="select" label="30390" lvalues="30391|30392" default="0" visible="false"/>
-		<setting id="port" type="text" label="30001" default="8096" visible="false" enable="false" />
+		<setting label="30011" type="action" action="RunScript(plugin.video.valencecon,0,?mode=DETECT_SERVER)" option="close"/>
 		<setting id="server_address" type="text" label="30000" default="" visible="true" enable="true" />
 		<setting id="verify_cert" type="bool" label="30003" default="true" visible="true" enable="true" />
 
 		<setting label="30389" type="lsep"/>
 		<setting type="sep" />
-		<setting label="30012" type="action" action="RunScript(plugin.video.jellycon,0,?mode=CHANGE_USER)" option="close"/>
-		<setting id="username" type="text" label="30024" />
+		<setting label="30012" type="action" action="RunScript(plugin.video.valencecon,0,?mode=CHANGE_PROFILE)" option="close"/>
+		<setting id="profile_name" type="text" label="30024" />
+		<setting id="api_key" type="text" label="30367" default="" visible="true" enable="true" />
 		<setting id="save_user_to_settings" type="bool" label="30378" default="true" visible="true" enable="true" />
-		<setting id="allow_password_saving" type="bool" label="30367" default="true" visible="true" enable="true" />
 
 	</category>
 	<category label="30207">
@@ -69,7 +66,7 @@
 		<setting label="30329" type="lsep"/>
 		<setting type="sep" />
 		<setting id="stopPlaybackOnScreensaver" type="bool" label="30332" default="false" visible="true" enable="true" />
-		<setting id="changeUserOnScreenSaver" type="bool" label="30330" default="false" visible="true" enable="true" />
+		<setting id="changeProfileOnScreenSaver" type="bool" label="30330" default="false" visible="true" enable="true" />
 		<setting id="cacheImagesOnScreenSaver" type="bool" label="30333" default="true" visible="true" enable="true" />
 		<setting id="cacheImagesOnScreenSaver_interval" type="slider" label="30400" default="0" range="0,1,60" option="int" visible="true"/>
 
@@ -124,7 +121,7 @@
 		<setting label="30671" type="lsep"/>
 		<setting id="credit_skipper_action" type="select" label="30667" lvalues="30673|30672|30674" default="0" visible="true" enable="true" />
 		<setting id="credit_skipper_start_offset" type="slider" label="30668" default="0" range="0,1,3" option="int" visible="true" enable="true" />
-		<setting id="credit_skipper_end_offset" type="slider" label="30669" default="1" range="0,1,3" option="int" visible="true" enable="true" />
+		<setting id="credit_skipper_end_offset" type="slider" label="30669" default="1" range="0,1,3" option="int" visible="true" enable="true"/>
 		<setting label="30675" type="lsep"/>
 		<setting id="commercial_skipper_action" type="select" label="30667" lvalues="30673|30672|30674" default="0" visible="true" enable="true" />
 		<setting id="commercial_skipper_start_offset" type="slider" label="30668" default="0" range="0,1,3" option="int" visible="true" enable="true"/>
@@ -132,7 +129,7 @@
 		<setting label="30676" type="lsep"/>
 		<setting id="preview_skipper_action" type="select" label="30667" lvalues="30673|30672|30674" default="0" visible="true" enable="true" />
 		<setting id="preview_skipper_start_offset" type="slider" label="30668" default="0" range="0,1,3" option="int" visible="true" enable="true" />
-		<setting id="preview_skipper_end_offset" type="slider" label="30669" default="1" range="0,1,3" option="int" visible="true" enable="true" />
+		<setting id="preview_skipper_end_offset" type="slider" label="30669" default="1" range="0,1,3" option="int" visible="true" enable="true"/>
 		<setting label="30677" type="lsep"/>
 		<setting id="recap_skipper_action" type="select" label="30667" lvalues="30673|30672|30674" default="0" visible="true" enable="true" />
 		<setting id="recap_skipper_start_offset" type="slider" label="30668" default="0" range="0,1,3" option="int" visible="true" enable="true"/>
@@ -152,7 +149,7 @@
 	</category>
 	<category label="30022">
 
-		<setting id="deviceName" type="text" label="30016" default="JellyCon" visible="true" enable="true" />
+		<setting id="deviceName" type="text" label="30016" default="ValenceCon" visible="true" enable="true" />
 		<setting id="http_timeout" type="slider" label="30416" default="60" range="5,1,300" option="int" visible="true" />
 		<setting id="profile_count" type="slider" label="30010" default="0" range="0,1,20" option="int" visible="true" />
 		<setting id="log_debug" type="bool" label="30027" default="false" visible="true" enable="true" />
