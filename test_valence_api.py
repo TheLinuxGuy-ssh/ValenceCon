@@ -153,8 +153,9 @@ class ValenceTestHarness:
         """Test a specific media item (read-only)"""
         print(f"\n🎬 Testing Media Item: {media_id}")
         self.test("Media Details", "GET", f"/media/{media_id}")
-        self.test("Media Artwork", "GET", f"/media/{media_id}/artwork/poster")
-        self.test("Media Artwork - Backdrop", "GET", f"/media/{media_id}/artwork/backdrop")
+        # Note: /media/{id}/artwork endpoint not available on this Valence version
+        # Artwork URLs come from posterUrl/backdropUrl in item data directly
+        self.test("Media Poster URL (from item data)", "GET", f"/media/{media_id}", params={'fields': 'posterUrl'})
     
     def export_results(self, filepath):
         """Export test results to JSON"""
