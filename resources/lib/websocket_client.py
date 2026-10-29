@@ -22,7 +22,7 @@ log = LazyLogger(__name__)
 
 class WebSocketClient(threading.Thread):
     """
-    Valence doesn't have WebSocket support like Jellyfin.
+    Valence does not expose a WebSocket API.
     This class is kept for compatibility but will not connect.
     """
 
@@ -39,7 +39,7 @@ class WebSocketClient(threading.Thread):
 
         self._library_monitor = library_change_monitor
         self.websocket_error = False
-        
+
         log.debug("Valence doesn't support WebSocket - WebSocketClient disabled")
 
         threading.Thread.__init__(self)
@@ -78,11 +78,11 @@ class WebSocketClient(threading.Thread):
         This thread will just sleep and exit when monitor aborts.
         """
         log.debug("WebSocketClient disabled for Valence (no WebSocket endpoint)")
-        
+
         while not self.monitor.abortRequested():
             if self.monitor.waitForAbort(60):
                 return
-        
+
         log.debug("WebSocketClient Stopped")
 
     def stop_client(self):

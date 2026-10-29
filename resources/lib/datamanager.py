@@ -16,6 +16,7 @@ from six.moves import cPickle
 from .valence import api
 from .lazylogger import LazyLogger
 from .item_functions import extract_item_info
+from .show_hierarchy import show_detail_items
 from .kodi_utils import HomeWindow
 from .tracking import timer
 from .filelock import FileLock
@@ -51,14 +52,21 @@ class DataManager:
 
         home_window = HomeWindow()
         log.debug("last_content_url : use_cache={0} url={1}".format(use_cache, url))
-        home_window.set_property("last_content_url", url)
+
+        # url can be a single path or a list of per-library paths that get merged
+        urls = [u for u in url] if isinstance(url, (list, tuple)) else [url]
+        if not urls:
+            urls = ['']
+        url_key = '||'.join(urls)
+        home_window.set_property("last_content_url", url_key)
 
         # For Valence, we use profile_id instead of user_id
         profile_id = self.user_details.get('profile_id')
         server = self.api.server
 
+        # url_key is a string used for cache files and skip-cache properties
         m = hashlib.md5()
-        m.update('{}|{}|{}'.format(profile_id, server, url).encode())
+        m.update('{}|{}|{}'.format(profile_id, server, url_key).encode())
         url_hash = m.hexdigest()
         cache_file = os.path.join(self.addon_dir, "cache_" + url_hash + ".pickle")
 
@@ -70,7 +78,7 @@ class DataManager:
 
         home_window.set_property(cache_file, "true")
 
-        clear_cache = home_window.get_property("skip_cache_for_" + url)
+        clear_cache = home_window.get_property("skip_cache_for_" + url_key)
         if clear_cache and os.path.isfile(cache_file):
             log.debug("Clearing cache data and loading new data")
             home_window.clear_property("skip_cache_for_" + url)
@@ -95,33 +103,71 @@ class DataManager:
         if item_list is None or len(item_list) == 0:
             log.debug("Loading url data from server")
 
-            results = self.api.get(url)
+            # fetch every url, normalizing each response shape, and merge
+            results = []
+            total_records = 0
+            baseline_name = None
 
-            if results is None:
-                results = []
-
-            # Valence API returns items directly or in an "items" array
-            if isinstance(results, dict):
-                if "items" in results:
-                    total_records = results.get("total", 0)
-                    baseline_name = results.get("BaselineItemName")
-                    results = results.get("items", [])
-                elif "Items" in results:
-                    total_records = results.get("TotalRecordCount", 0)
-                    baseline_name = results.get("BaselineItemName")
-                    results = results.get("Items", [])
-                elif "shows" in results:
-                    total_records = len(results.get("shows", []))
-                    results = results.get("shows", [])
+            def _parse_response(data):
+                """Return (raw_item_list, source_total, baseline) for a valence response"""
+                if data is None:
+                    return [], 0, None
+                raw = data
+                source_total = 0
+                if isinstance(data, dict):
+                    if "seasons" in data:
+                        raw = show_detail_items(data, gui_options)
+                        source_total = len(raw)
+                    elif "items" in data:
+                        raw = data.get("items") or []
+                        source_total = data.get("total", 0)
+                    elif "Items" in data:
+                        raw = data.get("Items") or []
+                        source_total = data.get("TotalRecordCount", 0)
+                    elif "shows" in data:
+                        raw = data.get("shows") or []
+                        source_total = len(raw)
+                    elif "artists" in data:
+                        raw = data.get("artists") or []
+                        source_total = len(raw)
+                    elif "albums" in data:
+                        raw = data.get("albums") or []
+                        source_total = len(raw)
+                    elif "episodes" in data:
+                        raw = data.get("episodes") or []
+                        source_total = len(raw)
+                    elif "tracks" in data:
+                        raw = data.get("tracks") or []
+                        source_total = data.get("total", len(raw))
+                    else:
+                        raw = []
+                elif isinstance(data, list):
+                    raw = data
+                    source_total = len(data)
                 else:
-                    total_records = len(results) if isinstance(results, list) else 0
-            elif isinstance(results, list) and len(results) > 0 and isinstance(results[0], dict) and "Items" in results[0]:
-                baseline_name = results[0].get("BaselineItemName")
-                results = results[0].get("Items")
-            elif isinstance(results, list):
-                total_records = len(results)
-            else:
-                total_records = 0
+                    raw = []
+                return raw or [], source_total or len(raw), None
+
+            request_error = None
+            for fetch_url in urls:
+                response = self.api.get(fetch_url)
+                if self.api.last_error and not request_error:
+                    request_error = self.api.last_error
+                raw_items, source_total, source_baseline = _parse_response(response)
+                log.debug("GET url : {0} : {1} items".format(fetch_url, len(raw_items)))
+                results.extend(raw_items)
+                total_records += source_total
+                if source_baseline and not baseline_name:
+                    baseline_name = source_baseline
+
+            if request_error:
+                message = 'Library request failed: {}. Check the server and try again.'.format(request_error)
+                log.warning('Valence directory request failed: {}'.format(request_error))
+                xbmcgui.Dialog().notification(
+                    'ValenceCon', message,
+                    icon='special://home/addons/plugin.video.valencecon/icon.png',
+                    time=8000,
+                )
 
             item_list = []
             for item in results:
@@ -132,7 +178,7 @@ class DataManager:
             cache_item = CacheItem()
             cache_item.item_list = item_list
             cache_item.file_path = cache_file
-            cache_item.items_url = url
+            cache_item.items_url = url_key
             cache_item.user_id = profile_id
             cache_item.last_action = "fresh_data"
             cache_item.date_saved = time.time()
@@ -216,6 +262,14 @@ class CacheManagerThread(threading.Thread):
                 results = results[0].get("Items")
             elif isinstance(results, dict) and results.get("items") is not None:
                 results = results.get("items", [])
+            elif isinstance(results, dict) and results.get("shows") is not None:
+                results = results.get("shows", [])
+            elif isinstance(results, dict) and results.get("artists") is not None:
+                results = results.get("artists", [])
+            elif isinstance(results, dict) and results.get("albums") is not None:
+                results = results.get("albums", [])
+            elif isinstance(results, dict) and results.get("episodes") is not None:
+                results = results.get("episodes", [])
 
             total_records = 0
             if isinstance(results, dict):

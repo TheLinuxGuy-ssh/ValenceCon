@@ -1,0 +1,123 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+    tags: ['v*']
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Test, lint, and build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install development dependencies
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Run offline regression tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Check Python syntax
+        run: python -m compileall -q default.py service.py resources tests tools
+
+      - name: Check critical lint errors
+        run: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+
+      - name: Verify release tag matches manifest
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python - <<'PY'
+          import os
+          import yaml
+
+          with open('release.yaml', 'r') as manifest_file:
+              version = str(yaml.safe_load(manifest_file)['version'])
+          tag = os.environ['RELEASE_TAG']
+          assert tag == 'v' + version, 'Tag {} does not match manifest version {}'.format(tag, version)
+          PY
+
+      - name: Build Kodi add-on
+        run: python build.py --version py3 --target dist
+
+      - name: Validate package contents
+        run: |
+          python - <<'PY'
+          from xml.etree import ElementTree
+          from zipfile import ZipFile
+          import yaml
+
+          path = 'dist/plugin.video.valencecon+py3.zip'
+          with ZipFile(path) as archive:
+              assert archive.testzip() is None, 'ZIP integrity check failed'
+              names = set(archive.namelist())
+              required = {
+                  'plugin.video.valencecon/addon.xml',
+                  'plugin.video.valencecon/resources/icon.png',
+                  'plugin.video.valencecon/resources/fanart.jpg',
+              }
+              missing = required - names
+              assert not missing, 'Missing package files: {}'.format(sorted(missing))
+              assert not any(
+                  name.startswith(('plugin.video.valencecon/tests/', 'plugin.video.valencecon/tools/'))
+                  or name in {
+                      'plugin.video.valencecon/.editorconfig',
+                      'plugin.video.valencecon/CONTRIBUTING.md',
+                      'plugin.video.valencecon/SECURITY.md',
+                  }
+                  for name in names
+              ), 'Development-only files found in the add-on package'
+              manifest = ElementTree.fromstring(archive.read('plugin.video.valencecon/addon.xml'))
+              assert manifest.attrib['id'] == 'plugin.video.valencecon'
+              with open('release.yaml', 'r') as manifest_file:
+                  expected_version = str(yaml.safe_load(manifest_file)['version']) + '+'
+              assert manifest.attrib['version'].startswith(expected_version)
+          PY
+
+      - name: Upload installable package
+        uses: actions/upload-artifact@v7
+        with:
+          name: valencecon-kodi-python3
+          path: dist/plugin.video.valencecon+py3.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Publish GitHub Release
+    needs: validate
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download validated package
+        uses: actions/download-artifact@v8
+        with:
+          name: valencecon-kodi-python3
+          path: dist
+
+      - name: Create release and attach Kodi package
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "$GITHUB_REF_NAME"
+          dist/plugin.video.valencecon+py3.zip
+          --title "$GITHUB_REF_NAME"
+          --generate-notes
+          --verify-tag

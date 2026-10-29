@@ -107,7 +107,7 @@ class IntroSkipperService(threading.Thread):
                 log.debug("SkipService: {0} is set to automatic skip, skipping segment".format(segment_type))
                 # If auto skip is enabled, skips to semgent ends automatically
                 player.seekTime(ticks_to_seconds(dialog.end))
-                xbmcgui.Dialog().notification("JellyCon", "{0} Skipped".format(segment_type))
+                xbmcgui.Dialog().notification("ValenceCon", "{0} Skipped".format(segment_type))
             elif skip_action == "0":
                 # Otherwise show skip dialog
                 if is_segment and not dialog.has_been_dismissed_or_skipped:

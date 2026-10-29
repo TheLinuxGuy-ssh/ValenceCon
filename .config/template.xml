@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<addon  id="plugin.video.valencecon" 
+<addon  id="plugin.video.valencecon"
         name="ValenceCon"
         version=""
         provider-name="Valence Contributors">
@@ -9,19 +9,20 @@
         <provides>video audio</provides>
         <medialibraryscanpath content="movies">library/movies</medialibraryscanpath>
   </extension>
-  <extension point="xbmc.service" library="service.py" start="login"/>
+  <extension point="xbmc.service" library="service.py"/>
   <extension point="xbmc.addon.metadata">
     <platform>all</platform>
     <language>en</language>
-    <license>MIT</license>
-    <forum>https://github.com/valenceOSS/valence/issues</forum>
-    <website>https://getvalence.app</website>
-    <source>https://github.com/valenceOSS/valence</source>
+    <license>GPL-2.0-only</license>
+    <forum>https://github.com/TheLinuxGuy-ssh/ValenceCon/issues</forum>
+    <website>https://www.getvalence.app</website>
+    <source>https://github.com/TheLinuxGuy-ssh/ValenceCon</source>
     <summary lang="en_GB">Browse and play your Valence server media library.</summary>
     <description lang="en_GB">An addon to allow you to browse and playback your Valence (https://getvalence.app) Movie, TV Show, Music, Book and Live TV collections.</description>
     <assets>
-        <icon>icon.png</icon>
-        <fanart>fanart.jpg</fanart>
+        <icon>resources/icon.png</icon>
+        <fanart>resources/fanart.jpg</fanart>
     </assets>
+    <reuselanguageinvoker>true</reuselanguageinvoker>
   </extension>
 </addon>

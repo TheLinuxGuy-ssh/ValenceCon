@@ -2,8 +2,7 @@ msgid ""
 msgstr ""
 "PO-Revision-Date: 2026-08-24 03:24+0000\n"
 "Last-Translator: Karan Singh BHardwaj <bhardwaj00009@gmail.com>\n"
-"Language-Team: Hindi <https://translate.jellyfin.org/projects/jellycon/"
-"jellycon/hi/>\n"
+"Language-Team: Hindi (ValenceCon translators)\n"
 "Language: hi_in\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
@@ -316,11 +315,11 @@ msgid "[Detect local server]"
 msgstr "स्थानीय सर्वर का पता करें"
 
 msgctxt "#30012"
-msgid "[Change user]"
+msgid "[Change profile]"
 msgstr "उपयोगकर्ता बदलें"
 
 msgctxt "#30014"
-msgid "Jellyfin"
+msgid "Valence"
 msgstr "जेलीफिन"
 
 msgctxt "#30008"
@@ -608,7 +607,7 @@ msgid "Delete"
 msgstr "मिटाना"
 
 msgctxt "#30300"
-msgid "Cache all Jellyfin images as local Kodi images?"
+msgid "Cache all Valence images as local Kodi images?"
 msgstr "सभी जेलीफ़िन छवियों को स्थानीय कोडी छवियों के रूप में कैश करें?"
 
 msgctxt "#30301"
@@ -648,7 +647,7 @@ msgid "Cache Images"
 msgstr "कैश छवियाँ"
 
 msgctxt "#30303"
-msgid "Missing Jellyfin images : "
+msgid "Missing Valence images : "
 msgstr "गुम जेलीफ़िन छवियाँ:"
 
 msgctxt "#30279"
@@ -660,7 +659,7 @@ msgid "Missing Title"
 msgstr "गुम शीर्षक"
 
 msgctxt "#30282"
-msgid "No Jellyfin servers detected on your local network."
+msgid "No Valence servers detected on your local network."
 msgstr "आपके स्थानीय नेटवर्क पर कोई जेलीफ़िन सर्वर नहीं पाया गया।"
 
 msgctxt "#30283"
@@ -708,7 +707,7 @@ msgid "Cache images"
 msgstr "कैश छवियाँ"
 
 msgctxt "#30304"
-msgid "Cached Jellyfin images : "
+msgid "Cached Valence images : "
 msgstr "कैश्ड जेलीफ़िन छवियाँ:"
 
 msgctxt "#30305"
@@ -720,9 +719,9 @@ msgid "Playback starting"
 msgstr "प्लेबैक प्रारंभ हो रहा है"
 
 msgctxt "#30277"
-msgid "JellyCon needs to prompt for resume on partily played items, Kodi can also prompt, this can cause a double prompt. Do you want to remove the double prompt?"
+msgid "ValenceCon needs to prompt for resume on partily played items, Kodi can also prompt, this can cause a double prompt. Do you want to remove the double prompt?"
 msgstr ""
-"आंशिक रूप से देखे गए आइटम्स के लिए JellyCon और Kodi दोनों प्रॉम्प्ट दिखा सकते हैं, जिससे "
+"आंशिक रूप से देखे गए आइटम्स के लिए ValenceCon और Kodi दोनों प्रॉम्प्ट दिखा सकते हैं, जिससे "
 "डबल प्रॉम्प्ट हो सकता है। क्या आप इसे हटाना चाहते हैं?"
 
 msgctxt "#30276"
@@ -742,7 +741,7 @@ msgid "Select Media Source"
 msgstr "मीडिया स्रोत चुनें"
 
 msgctxt "#30310"
-msgid "Enable Jellyfin remote control"
+msgid "Enable Valence remote control"
 msgstr "जेलीफ़िन रिमोट कंट्रोल सक्षम करें"
 
 msgctxt "#30311"
@@ -822,7 +821,7 @@ msgid "Cache artwork in the background"
 msgstr "बैकग्राउंड में आर्टवर्क कैश करें"
 
 msgctxt "#30334"
-msgid "Use JellyCon context menu"
+msgid "Use ValenceCon context menu"
 msgstr "जेलीकॉन संदर्भ मेनू का उपयोग करें"
 
 msgctxt "#30337"
@@ -858,7 +857,7 @@ msgid "Number of images removed from cache"
 msgstr "कैश से हटाई गई छवियों की संख्या"
 
 msgctxt "#30345"
-msgid "Cache Jellyfin server data requests"
+msgid "Cache Valence server data requests"
 msgstr "जेलीफ़िन सर्वर डेटा अनुरोधों को कैश करें"
 
 msgctxt "#30346"
@@ -1031,7 +1030,7 @@ msgid "Existing images before delete : "
 msgstr "हटाने से पहले मौजूद तस्वीरें:"
 
 msgctxt "#30386"
-msgid "Unused Jellyfin images : "
+msgid "Unused Valence images : "
 msgstr "अप्रयुक्त जेलीफिन तस्वीरें:"
 
 msgctxt "#30387"
@@ -1075,7 +1074,7 @@ msgid " - Pages"
 msgstr "- पृष्ठ"
 
 msgctxt "#30398"
-msgid "Refresh Jellyfin Metadata"
+msgid "Refresh Valence Metadata"
 msgstr "जेलीफिन मेटाडेटा ताज़ा करें"
 
 msgctxt "#30400"
@@ -1103,7 +1102,7 @@ msgid " - Show All"
 msgstr "- सभी दिखाएं"
 
 msgctxt "#30406"
-msgid "Jellyfin Libraries"
+msgid "Valence Libraries"
 msgstr "जेलीफिन लाइब्रेरी"
 
 msgctxt "#30439"

@@ -17,7 +17,7 @@ from six.moves.urllib.parse import unquote
 from .valence import api
 from .lazylogger import LazyLogger
 from .jsonrpc import JsonRpc, get_value
-from .utils import translate_string, load_user_details
+from .utils import translate_string, load_user_details, get_default_filters
 from .kodi_utils import HomeWindow
 from .item_functions import get_art
 
@@ -222,7 +222,7 @@ class CacheArtwork(threading.Thread):
         for library in libraries:
             library_id = library.get('id')
             library_kind = library.get('kind')
-            
+
             if library_kind in ['movies', 'shows', 'anime']:
                 items = api.get_library_items(library_id, {'limit': 500, 'fields': get_default_filters()})
                 if items and items.get('items'):

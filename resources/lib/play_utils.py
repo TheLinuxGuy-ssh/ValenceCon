@@ -8,13 +8,15 @@ import re
 import sys
 import binascii
 import datetime
+import time
 
+import requests
 import xbmc
 import xbmcgui
 import xbmcaddon
 import xbmcvfs
 import xbmcplugin
-from six.moves.urllib.parse import urlencode
+from six.moves.urllib.parse import quote, urlencode, urljoin, urlsplit
 
 from .valence import api
 from .lazylogger import LazyLogger
@@ -27,9 +29,34 @@ from .cache_images import CacheArtwork
 from .picture_viewer import PictureViewer
 from .tracking import timer
 from .playnext import PlayNextDialog
+from .image_server import register_stream
 
 log = LazyLogger(__name__)
 settings = xbmcaddon.Addon()
+
+
+def _is_music_item(item):
+    item_type = str(item.get('type') or item.get('Type') or '').lower()
+    if item_type in ('audio', 'music', 'musictrack', 'track', 'song'):
+        return True
+    if item.get('trackNumber') is not None or item.get('track_number') is not None:
+        return True
+    return (isinstance(item.get('album'), dict) and
+            item.get('durationSeconds') is not None)
+
+
+def _music_stream_quality(codec):
+    """Prefer the original for codecs known to play directly; ask Valence for
+    its broadly compatible AAC encode when the codec is absent or unfamiliar.
+    """
+    codec_name = str(codec or '').strip().lower()
+    direct_play_codecs = (
+        'flac', 'mp3', 'mpeg 1 layer 3', 'mpeg 2 layer 3', 'aac',
+        'mpeg-4/aac', 'alac', 'opus', 'vorbis', 'pcm',
+    )
+    if codec_name.startswith('pcm') or codec_name in direct_play_codecs:
+        return 'lossless'
+    return 'high'
 
 
 def play_all_files(items, play_items=True):
@@ -37,7 +64,11 @@ def play_all_files(items, play_items=True):
     log.debug("playAllFiles called with items: {0}", items)
     server = settings.getSetting('server_address')
 
-    playlist = xbmc.PlayList(xbmc.PLAYLIST_VIDEO)
+    first_item = items[0] if items else {}
+    first_type = (first_item.get('type') or first_item.get('Type') or '').lower()
+    is_music = _is_music_item(first_item)
+    playlist_type = xbmc.PLAYLIST_MUSIC if is_music else xbmc.PLAYLIST_VIDEO
+    playlist = xbmc.PlayList(playlist_type)
     playlist.clear()
 
     playlist_data = {}
@@ -47,7 +78,9 @@ def play_all_files(items, play_items=True):
         item_id = item.get("id") or item.get("Id")
 
         # get playback info
-        playback_info = get_item_playback_info(item_id, False)
+        item_type = item.get('type') or item.get('Type') or ('MusicTrack' if _is_music_item(item) else None)
+        playback_info = get_item_playback_info(
+            item_id, False, item_type, item.get('codec') or item.get('Codec'))
         if playback_info is None:
             log.debug("playback_info was None, could not get MediaSources so can not play!")
             return
@@ -64,10 +97,10 @@ def play_all_files(items, play_items=True):
         sources = playback_info.get('MediaSources')
 
         selected_media_source = sources[0]
-        source_id = selected_media_source.get("Id")
+        source_id = selected_media_source.get("id") or selected_media_source.get("Id")
 
         playurl, playback_type, listitem_props = get_play_url(selected_media_source, play_session_id)
-        log.info("Play URL: {0} PlaybackType: {1} ListItem Properties: {2}".format(playurl, playback_type, listitem_props))
+        log.info("Prepared Valence playlist item: type={} playback={}".format(first_type or 'video', playback_type))
 
         if playurl is None:
             return
@@ -102,6 +135,9 @@ def play_all_files(items, play_items=True):
             home_window.set_property('now_playing', json.dumps(playlist_data[playurl]))
 
         list_item.setPath(playurl)
+        mime_type = selected_media_source.get('MimeType')
+        if mime_type:
+            list_item.setMimeType(mime_type)
         list_item = set_list_item_props(item_id, list_item, item, server, listitem_props, item_title)
 
         playlist.add(playurl, list_item)
@@ -133,18 +169,40 @@ def play_list_of_items(id_list):
 def add_to_playlist(play_info):
     log.debug("Adding item to playlist : {0}".format(play_info))
 
-    playlist = xbmc.PlayList(xbmc.PLAYLIST_VIDEO)
     server = settings.getSetting('server_address')
 
     item_id = play_info.get("item_id")
 
-    media = api.get_media(item_id)
-    if media is None:
+    requested_media_type = (play_info.get('media_type') or '').lower()
+    if requested_media_type in ('musictrack', 'audio', 'music', 'track', 'song'):
+        media = {
+            'id': item_id,
+            'type': 'MusicTrack',
+            'title': play_info.get('title') or 'Unknown track',
+            'artists': [play_info.get('artist')] if play_info.get('artist') else [],
+            'album': {'title': play_info.get('album') or 'Unknown album'},
+            'trackNumber': int(play_info.get('track_number') or 0),
+            'durationSeconds': float(play_info.get('duration') or 0),
+            'codec': play_info.get('codec'),
+        }
+    else:
+        media = api.get_media(item_id)
+    if not media:
         log.debug("Playfile item was None, so can not play!")
+        if api.last_error:
+            xbmcgui.Dialog().notification('ValenceCon',
+                                          'Could not load media details: {}.'.format(api.last_error),
+                                          time=8000)
         return
 
+    item_type = (media.get('type') or media.get('Type') or '').lower()
+    playlist_type = xbmc.PLAYLIST_MUSIC if _is_music_item(media) else xbmc.PLAYLIST_VIDEO
+    playlist = xbmc.PlayList(playlist_type)
+
     # get playback info
-    playback_info = get_item_playback_info(item_id, False)
+    playback_info = get_item_playback_info(
+        item_id, False, media.get('type') or media.get('Type') or play_info.get('media_type'),
+        media.get('codec') or play_info.get('codec'))
     if playback_info is None:
         log.debug("playback_info was None, could not get MediaSources so can not play!")
         return
@@ -161,10 +219,10 @@ def add_to_playlist(play_info):
     sources = playback_info.get('MediaSources')
 
     selected_media_source = sources[0]
-    source_id = selected_media_source.get("Id")
+    source_id = selected_media_source.get("id") or selected_media_source.get("Id")
 
     playurl, playback_type, listitem_props = get_play_url(selected_media_source, play_session_id)
-    log.info("Play URL: {0} PlaybackType: {1} ListItem Properties: {2}".format(playurl, playback_type, listitem_props))
+    log.info("Prepared Valence playlist item: type={} playback={}".format(item_type or 'video', playback_type))
 
     if playurl is None:
         return
@@ -194,6 +252,9 @@ def add_to_playlist(play_info):
     data["play_action_type"] = "play_all"
 
     list_item.setPath(playurl)
+    mime_type = selected_media_source.get('MimeType')
+    if mime_type:
+        list_item.setMimeType(mime_type)
     list_item = set_list_item_props(item_id, list_item, media, server, listitem_props, item_title)
 
     playlist.add(playurl, list_item)
@@ -201,7 +262,7 @@ def add_to_playlist(play_info):
 
 def get_playback_intros(item_id):
     log.debug("get_playback_intros")
-    # Valence doesn't have intros endpoint like Jellyfin
+    # Valence does not provide an introspection endpoint
     # This could be implemented via Valence's segments/chapters API
     return []
 
@@ -249,13 +310,34 @@ def play_file(play_info):
 
     server = settings.getSetting('server_address')
 
-    # Get media details
-    media = api.get_media(item_id)
-    if media is None:
+    # Kodi passes the selected track's metadata in the playback URL. Use it
+    # directly so music playback does not wait on an unrelated detail request.
+    requested_media_type = (play_info.get('media_type') or '').lower()
+    music_track_requested = requested_media_type in (
+        'musictrack', 'audio', 'music', 'track', 'song')
+    if music_track_requested:
+        artists = [play_info.get('artist')] if play_info.get('artist') else []
+        media = {
+            'id': item_id,
+            'type': 'MusicTrack',
+            'title': play_info.get('title') or 'Unknown track',
+            'artists': artists,
+            'album': {'title': play_info.get('album') or 'Unknown album'},
+            'trackNumber': int(play_info.get('track_number') or 0),
+            'durationSeconds': float(play_info.get('duration') or 0),
+            'codec': play_info.get('codec'),
+        }
+    else:
+        media = api.get_media(item_id)
+    if not media:
         log.debug("Playfile item was None, so can not play!")
+        if api.last_error:
+            xbmcgui.Dialog().notification('ValenceCon',
+                                          'Could not load media details: {}.'.format(api.last_error),
+                                          time=8000)
         return
 
-    log.debug("Playfile item: {0}".format(media))
+    log.debug("Loaded Valence media details for playback")
 
     # Generate an instant mix based on the item
     if action == 'instant_mix':
@@ -317,10 +399,10 @@ def play_file(play_info):
         channel_id = media.get("ChannelId")
         channel = api.get_media(channel_id)
         if channel:
-            item_id = channel["Id"]
+            item_id = channel.get("id") or channel.get("Id")
             media = channel
     elif media.get('Type') == "LiveChannel":
-        channel_id = media.get("Id")
+        channel_id = media.get("id") or media.get("Id")
     elif media.get("Type") == "Photo":
         play_url = "%s/Items/%s/Images/Primary"
         play_url = play_url % (server, item_id)
@@ -332,9 +414,17 @@ def play_file(play_info):
         return
 
     # get playback info from the server using the device profile
-    playback_info = get_item_playback_info(item_id, force_transcode)
+    playback_media_type = (play_info.get('media_type') or
+                           media.get('type') or media.get('Type'))
+    playback_info = get_item_playback_info(
+        item_id, force_transcode, playback_media_type,
+        media.get('codec') or play_info.get('codec'))
     if playback_info is None:
         log.debug("playback_info was None, could not get MediaSources so can not play!")
+        if api.last_error:
+            xbmcgui.Dialog().notification('ValenceCon',
+                                          'Could not start playback: {}.'.format(api.last_error),
+                                          time=8000)
         return
     if playback_info.get("ErrorCode") is not None:
         error_string = playback_info.get("ErrorCode")
@@ -351,6 +441,9 @@ def play_file(play_info):
 
     if media_sources is None or len(media_sources) == 0:
         log.debug("Play Failed! There is no MediaSources data!")
+        xbmcgui.Dialog().notification('ValenceCon',
+                                      'The server did not return a playable stream.',
+                                      time=8000)
         return
 
     elif len(media_sources) == 1:
@@ -380,7 +473,7 @@ def play_file(play_info):
         log.debug("Play Aborted, MediaSource was None")
         return
 
-    source_id = selected_media_source.get("Id")
+    source_id = selected_media_source.get("id") or selected_media_source.get("Id")
     seek_time = 0
     auto_resume = int(auto_resume)
 
@@ -389,16 +482,16 @@ def play_file(play_info):
         seek_time = (auto_resume / 1000) / 10000
 
     elif force_auto_resume:
-        user_data = media.get("UserData")
-        reasonable_ticks = int(user_data.get("PlaybackPositionTicks")) / 1000
-        seek_time = reasonable_ticks / 10000
+        user_data = media.get("userData") or media.get("UserData") or _get_server_progress(item_id)
+        position_seconds = user_data.get("positionSeconds") or 0
+        seek_time = float(position_seconds or 0)
 
     else:
-        user_data = media.get("UserData")
-        if user_data.get("PlaybackPositionTicks") != 0:
+        user_data = media.get("userData") or media.get("UserData") or _get_server_progress(item_id)
+        if (user_data.get("positionSeconds") or 0) != 0:
 
-            reasonable_ticks = int(user_data.get("PlaybackPositionTicks")) / 1000
-            seek_time = round(reasonable_ticks / 10000, 0)
+            position_seconds = user_data.get("positionSeconds") or 0
+            seek_time = round(float(position_seconds), 0)
             display_time = (datetime.datetime(1,1,1) + datetime.timedelta(seconds=seek_time)).strftime('%H:%M:%S')
 
             resume_dialog = ResumeDialog("ResumeDialog.xml", addon_path, "default", "720p")
@@ -415,7 +508,7 @@ def play_file(play_info):
 
     log.debug("play_session_id: {0}".format(play_session_id))
     playurl, playback_type, listitem_props = get_play_url(selected_media_source, play_session_id, channel_id)
-    log.info("Play URL: {0} Playback Type: {1} ListItem Properties: {2}".format(playurl, playback_type, listitem_props))
+    log.info("Prepared Valence playback item: playback={}".format(playback_type))
 
     if playurl is None:
         return
@@ -440,6 +533,7 @@ def play_file(play_info):
     gui_options["server"] = server
     gui_options["name_format"] = None
     gui_options["name_format_type"] = ""
+    gui_options["media_type"] = play_info.get("media_type")
     item_details = extract_item_info(media, gui_options)
 
     # create ListItem
@@ -487,6 +581,9 @@ def play_file(play_info):
     home_window.set_property('now_playing', json.dumps(data))
 
     list_item.setPath(playurl)
+    mime_type = selected_media_source.get('MimeType')
+    if mime_type:
+        list_item.setMimeType(mime_type)
     list_item = set_list_item_props(item_id, list_item, media, server, listitem_props, item_title)
 
     player = xbmc.Player()
@@ -508,7 +605,10 @@ def play_file(play_info):
             Play from remote control or addon menus.  Doesn't have a handle,
             so need to call player directly
             '''
-            playlist = xbmc.PlayList(xbmc.PLAYLIST_VIDEO)
+            item_type = (media.get('type') or media.get('Type') or
+                         play_info.get('media_type') or '').lower()
+            playlist_type = xbmc.PLAYLIST_MUSIC if item_type in ('audio', 'musictrack', 'music') else xbmc.PLAYLIST_VIDEO
+            playlist = xbmc.PlayList(playlist_type)
             playlist.clear()
             playlist.add(playurl, list_item)
             player.play(playlist)
@@ -716,14 +816,21 @@ def set_list_item_props(item_id, list_item, result, server, extra_props, title):
         mediatype = 'season'
     elif item_type == 'episode':
         mediatype = 'episode'
-    elif item_type == 'audio':
+    elif item_type in ('audio', 'musictrack'):
         mediatype = 'song'
 
-    if item_type == "audio":
+    if item_type in ("audio", "musictrack"):
 
-        artists = result.get("Artists", [])
-        track = result.get("IndexNumber")
-        album = result.get("Album")
+        artists = result.get("artists") or result.get("Artists", [])
+        if not isinstance(artists, list):
+            artists = [artists]
+        artist_names = [artist.get('name') if isinstance(artist, dict) else str(artist)
+                        for artist in artists]
+        artist_names = [artist for artist in artist_names if artist]
+        track = result.get("trackNumber") or result.get("IndexNumber")
+        album = result.get("album") or result.get("Album")
+        if isinstance(album, dict):
+            album = album.get('title') or album.get('name')
 
         if hasattr(list_item, "getMusicInfoTag"):
             music_tag = list_item.getMusicInfoTag()
@@ -734,10 +841,10 @@ def set_list_item_props(item_id, list_item, result, server, extra_props, title):
             music_tag.setTitle(title)
             music_tag.setMediaType(mediatype)
             music_tag.setAlbum(album or "Unknown Album")
-            if artists:
-                music_tag.setArtist(artists[0])
-            else:
-                music_tag.setArtist(["Unknown Artist"])
+            # Kodi's MusicInfoTag.setArtist() accepts a single string, not a
+            # list. Passing Valence's artist list raises TypeError and aborts
+            # play_file before Kodi receives the stream URL.
+            music_tag.setArtist(", ".join(artist_names) or "Unknown Artist")
             if track:
                 music_tag.setTrack(track)
         else:
@@ -745,7 +852,7 @@ def set_list_item_props(item_id, list_item, result, server, extra_props, title):
             details = {
                 'title': title,
                 'mediatype': mediatype,
-                'artist': artists[0] if artists else "Unknown Artist",
+                'artist': artist_names or ["Unknown Artist"],
                 'album': album or "Unknown Album"
             }
             if track:
@@ -819,12 +926,12 @@ def audio_subs_pref(url, list_item, media_source, item_id, audio_stream_index, s
     playurlprefs = ""
     default_audio = media_source.get('DefaultAudioStreamIndex', 1)
     default_sub = media_source.get('DefaultSubtitleStreamIndex', "")
-    source_id = media_source["Id"]
+    source_id = media_source.get("id") or media_source.get("Id")
 
     media_streams = media_source['MediaStreams']
 
     for stream in media_streams:
-        # Since Jellyfin returns all possible tracks together, have to sort them.
+        # Since Valence returns all possible tracks together, have to sort them.
         index = stream['Index']
 
         if 'Audio' in stream['Type']:
@@ -1014,6 +1121,9 @@ def send_progress():
     playback_type = play_data.get("playback_type")
     play_session_id = play_data.get("play_session_id")
 
+    if play_session_id:
+        api.playback_session_heartbeat(play_session_id, not paused)
+
     playlist = xbmc.PlayList(xbmc.PLAYLIST_VIDEO)
     playlist_position = playlist.getposition()
     playlist_size = playlist.size()
@@ -1027,7 +1137,7 @@ def send_progress():
         'durationSeconds': total_play_time,
         'isFinished': False
     }
-    
+
     log.debug("Sending Valence progress: {0}".format(payload))
     api.report_progress(item_id, play_time, total_play_time, False)
 
@@ -1090,7 +1200,7 @@ def prompt_for_stop_actions(item_id, data):
 
         else:
             play_info = {
-                "item_id": next_episode.get("Id"),
+                "item_id": next_episode.get("id") or next_episode.get("Id"),
                 "auto_resume": "-1",
                 "force_transcode": False
             }
@@ -1133,16 +1243,29 @@ def stop_all_playback():
 
                 clear_entries.append(item)
 
-            if data.get('playback_type') == 'Transcode':
-                device_id = get_device_id()
-                play_session_id = data.get("play_session_id")
-                url = "/Videos/ActiveEncodings?DeviceId=%s&playSessionId=%s" % (device_id, play_session_id)
-                api.delete(url)
+            play_session_id = data.get("play_session_id")
+            if play_session_id:
+                api.delete("/playback/session/{}".format(play_session_id))
 
     for entry in clear_entries:
         del played_information[entry]
 
     home_window.set_property('played_information', json.dumps(played_information))
+
+
+def _get_server_progress(item_id):
+    """Resume data for an item from the shared progress log (GET /api/progress)"""
+    result = api.get('/progress')
+    if isinstance(result, dict):
+        for entry in result.get('progress', []) or []:
+            if entry.get('mediaId') == item_id:
+                position = entry.get('positionSeconds') or 0
+                return {
+                    'positionSeconds': int(round(position)),
+                    'isFinished': bool(entry.get('isFinished')),
+                    'updatedAt': entry.get('updatedAt', ''),
+                }
+    return {}
 
 
 def get_playing_data():
@@ -1176,7 +1299,13 @@ def get_playing_data():
         log.error("get_playing_data : getPlayingFile() : {0}".format(e))
         return {}
     log.debug("get_playing_data : getPlayingFile() : {0}".format(playing_file))
-    if server in playing_file and item_id is not None:
+    playing_url = urlsplit(playing_file)
+    is_valence_proxy = (
+        playing_url.scheme in ('http', 'https') and
+        playing_url.hostname in ('127.0.0.1', 'localhost', '::1') and
+        playing_url.path.startswith('/valence-stream/')
+    )
+    if (server in playing_file or is_valence_proxy) and item_id is not None:
         play_time = player.getTime()
         total_play_time = player.getTotalTime()
 
@@ -1196,16 +1325,102 @@ def get_playing_data():
     return {}
 
 
-def get_item_playback_info(item_id, force_transcode=False):
-    """Get playback info for an item by starting a playback session"""
+def get_item_playback_info(item_id, force_transcode=False, media_type=None, audio_codec=None):
+    """Get playback info for Valence video sessions or direct music streams."""
+    if str(media_type or '').lower() in ('musictrack', 'audio', 'music', 'track', 'song'):
+        api.refresh_settings()
+        base_url = (api.server or settings.getSetting('server_address')).rstrip('/')
+        quality = _music_stream_quality(audio_codec)
+        stream_url = '{}/api/music/tracks/{}/stream?quality={}'.format(
+            base_url,
+            quote(str(item_id), safe=''),
+            quality,
+        )
+        probe_started = time.time()
+        try:
+            probe = api.session.get(
+                stream_url,
+                headers={'Range': 'bytes=0-0', 'Accept': '*/*'},
+                verify=api.verify_cert,
+                timeout=(5, 10),
+                stream=True,
+                allow_redirects=False,
+            )
+            try:
+                response_content_type = probe.headers.get('Content-Type')
+                stream_content_type = (
+                    response_content_type
+                    if probe.status_code in (200, 206) else None)
+                log.info('Valence music stream check returned HTTP {} quality={} type={} range={} elapsed={:.2f}s'.format(
+                    probe.status_code,
+                    quality,
+                    response_content_type or 'unknown',
+                    probe.status_code == 206,
+                    time.time() - probe_started,
+                ))
+                if probe.status_code >= 400:
+                    return {
+                        'PlaySessionId': None,
+                        'MediaSources': [],
+                        'ErrorCode': 'Valence music stream returned HTTP {}.'.format(
+                            probe.status_code),
+                    }
+            finally:
+                probe.close()
+        except requests.exceptions.Timeout:
+            log.warning('Valence music stream check timed out after {:.2f}s'.format(
+                time.time() - probe_started))
+            return {
+                'PlaySessionId': None,
+                'MediaSources': [],
+                'ErrorCode': 'Valence did not respond to the music stream request in time.',
+            }
+        except Exception as error:
+            log.warning('Valence music stream check failed: {}'.format(
+                type(error).__name__))
+            return {
+                'PlaySessionId': None,
+                'MediaSources': [],
+                'ErrorCode': 'Valence could not open the music stream.',
+            }
+
+        proxy_url = register_stream(stream_url, is_manifest=False)
+        if not proxy_url:
+            return {
+                'PlaySessionId': None,
+                'MediaSources': [],
+                'ErrorCode': 'The local Valence stream proxy is unavailable.',
+            }
+        return {
+            'PlaySessionId': None,
+            'MediaSources': [{
+                'Id': item_id,
+                'Name': 'Music stream',
+                'Path': proxy_url,
+                'MimeType': stream_content_type,
+                'Container': 'audio',
+                'SupportsDirectPlay': True,
+                'SupportsDirectStream': False,
+                'SupportsTranscoding': False,
+                'MediaStreams': [],
+            }],
+            'ErrorCode': None,
+        }
+
     # Build device profile for Valence
+    # Valence requires maxAudioChannels to be a positive integer,
+    # the "no limit" setting (0) maps to a safe 8 channels
+    audio_channels = int(settings.getSetting("audio_max_channels"))
+    if audio_channels <= 0:
+        audio_channels = 8
+
     device_profile = {
         "schemaVersion": 1,
         "id": get_device_id(),
         "name": "Kodi ValenceCon",
         "maxWidth": int(settings.getSetting("playback_max_width")),
         "maxHeight": int(settings.getSetting("playback_max_width")) * 9 // 16,
-        "maxAudioChannels": int(settings.getSetting("audio_max_channels")),
+        "maxAudioChannels": audio_channels,
         "supportedVideoRanges": ["SDR", "HDR10", "DolbyVision"],
         "supportedSubtitleFormats": ["srt", "webvtt", "ass", "vobsub", "pgs"],
         "directPlayProfiles": [
@@ -1232,41 +1447,65 @@ def get_item_playback_info(item_id, force_transcode=False):
             }
         ]
     }
-    
+
     if settings.getSetting("playback_video_force_8") == "true":
         device_profile["maxVideoBitDepth"] = 8
 
     # Start playback session
     session = api.start_playback_session(item_id, device_profile)
-    
+
     if not session:
         return None
-    
-    # Convert Valence session response to compatible format
-    # Valence returns: delivery.manifestUrl (HLS), mode (DirectPlay/Transcode/Remux)
+
+    # Valence can deliver a session as either an HLS manifest or a direct file.
+    # The direct URL is common when the device profile can play the source.
     media_sources = []
-    
-    delivery = session.get("delivery", {})
+
+    delivery = session.get("delivery") or {}
+    delivery_kind = delivery.get('kind')
     manifest_url = delivery.get("manifestUrl")
+    media_url = manifest_url or delivery.get('url')
+    is_manifest = delivery_kind == 'hls' or (not delivery_kind and bool(manifest_url))
     mode = session.get("mode", "Transcode")
-    plan = session.get("plan", {})
-    
-    if manifest_url:
-        # Build full URL
+    stream_content_type = 'application/vnd.apple.mpegurl' if is_manifest else None
+
+    if media_url:
         base_url = settings.getSetting('server_address').rstrip('/')
-        full_manifest_url = base_url + manifest_url
-        
+        full_media_url = urljoin(base_url + '/', media_url)
+
+        # Kodi's player does not inherit the API client's authentication
+        # headers. The loopback proxy adds them to Valence requests and rewrites
+        # HLS child URLs without putting credentials in Kodi's player URL.
+        # Avoid probing this URL here: requesting an HLS manifest can start a
+        # transcode, and doing so in the plugin action blocks Kodi's directory
+        # thread before the player makes its own first request.
+        proxy_media_url = register_stream(full_media_url, is_manifest=is_manifest)
+        if not proxy_media_url:
+            return {
+                "PlaySessionId": session.get("sessionId") or session.get("id"),
+                "MediaSources": [],
+                "ErrorCode": "The local Valence stream proxy is unavailable.",
+            }
+
         media_sources.append({
             "Id": item_id,
-            "Name": "HLS Stream",
-            "Path": full_manifest_url,
-            "Container": "hls",
+            "Name": "Valence media stream",
+            "Path": proxy_media_url,
+            "MimeType": stream_content_type,
+            "Container": "hls" if is_manifest else "direct",
             "SupportsDirectPlay": mode == "DirectPlay",
-            "SupportsDirectStream": mode == "DirectStream",
+            "SupportsDirectStream": mode in ("DirectStream", "Remux"),
             "SupportsTranscoding": mode == "Transcode",
             "MediaStreams": [],  # Would need to fetch from media details
         })
-    
+
+    if not media_sources:
+        return {
+            "PlaySessionId": session.get("sessionId") or session.get("id"),
+            "MediaSources": [],
+            "ErrorCode": "Valence did not return a playable media URL.",
+        }
+
     return {
         "PlaySessionId": session.get("sessionId") or session.get("id"),
         "MediaSources": media_sources,
@@ -1275,7 +1514,12 @@ def get_item_playback_info(item_id, force_transcode=False):
 
 
 def get_play_url(media_source, play_session_id, channel_id=None):
-    log.debug("get_play_url - media_source: {0}", media_source)
+    log.debug("get_play_url - container={} direct_play={} direct_stream={} transcode={}".format(
+        media_source.get('Container'),
+        media_source.get('SupportsDirectPlay', False),
+        media_source.get('SupportsDirectStream', False),
+        media_source.get('SupportsTranscoding', False),
+    ))
 
     # Valence uses HLS manifest URL from session
     playurl = media_source.get("Path")
@@ -1334,6 +1578,134 @@ def get_strm_details(media_source):
     return playurl, listitem_props
 
 
+def report_stopped_playback(data):
+    """Send the final progress to the Valence server when playback stops"""
+    current_position = data.get("current_position", 0)
+    duration = data.get("duration", 0)
+    item_id = data.get("item_id")
+
+    if item_id is not None and current_position >= 0:
+        log.debug("Playback Stopped at: {0}".format(current_position))
+        try:
+            api.report_progress(item_id, current_position, duration, False)
+        except Exception as error:
+            log.error("report_stopped_playback failed: {0}".format(error))
+
+
+def get_media_segments(item_id):
+    """Get media segments (intro/credits) for an item from the Valence server"""
+    result = api.get('/media/{}/segments'.format(item_id))
+    if not result or not isinstance(result, dict):
+        log.debug("GetMediaSegments : Media segments could not be retrieved")
+        return None
+    segments = result.get("segments", [])
+    if not segments:
+        log.debug("GetMediaSegments : no segments for item")
+    return segments
+
+
+class PlaybackService(xbmc.Monitor):
+    """Handles Kodi notifications for playback actions and screensaver events"""
+
+    background_image_cache_thread = None
+
+    def __init__(self, monitor):
+        self.monitor = monitor
+
+    def onNotification(self, sender, method, data):
+        if method == 'GUI.OnScreensaverActivated':
+            self.screensaver_activated()
+            return
+        elif method == 'GUI.OnScreensaverDeactivated':
+            self.screensaver_deactivated()
+            return
+        elif method == 'System.OnQuit':
+            home_window = HomeWindow()
+            home_window.set_property('exit', 'True')
+            return
+
+        if sender.lower() not in (
+            'plugin.video.valencecon', 'xbmc', 'upnextprovider.signal'
+        ):
+            return
+
+        signal = method.split('.', 1)[-1]
+        if signal not in (
+            "valencecon_play_action", "valencecon_play_youtube_trailer_action",
+            "set_view", "plugin.video.valencecon_play_action"
+        ):
+            return
+
+        try:
+            data_json = json.loads(data)
+        except (ValueError, TypeError):
+            log.debug("PlaybackService:onNotification bad data: {0}".format(data))
+            return
+
+        if sender.lower() == "upnextprovider.signal":
+            try:
+                play_info = json.loads(binascii.unhexlify(data_json[0]))
+            except Exception as error:
+                log.error("upnext data parse failed: {0}".format(error))
+                return
+        else:
+            play_info = data_json[0]
+
+        log.debug("PlaybackService:onNotification:{0}".format(play_info))
+
+        if signal in (
+            "valencecon_play_action", "plugin.video.valencecon_play_action"
+        ):
+            play_file(play_info)
+        elif signal == "valencecon_play_youtube_trailer_action":
+            trailer_link = play_info.get("url")
+            if trailer_link:
+                xbmc.executebuiltin(trailer_link)
+        elif signal == "set_view":
+            view_id = play_info.get("view_id")
+            log.debug("Setting view id: {0}".format(view_id))
+            xbmc.executebuiltin("Container.SetViewMode(%s)" % int(view_id))
+
+    def screensaver_activated(self):
+        log.debug("Screen Saver Activated")
+
+        home_screen = HomeWindow()
+        home_screen.clear_property("skip_select_user")
+
+        stop_playback = settings.getSetting("stopPlaybackOnScreensaver") == 'true'
+
+        if stop_playback:
+            player = xbmc.Player()
+            if player.isPlayingVideo():
+                log.debug("Screen Saver Activated : isPlayingVideo() = true")
+                play_data = get_playing_data()
+                if play_data:
+                    log.debug("Screen Saver Activated : ValenceCon item so stop it")
+                    player.stop()
+
+        clear_old_cache_data()
+
+        cache_images = settings.getSetting('cacheImagesOnScreenSaver') == 'true'
+        if cache_images:
+            self.background_image_cache_thread = CacheArtwork()
+            self.background_image_cache_thread.start()
+
+    def screensaver_deactivated(self):
+        log.debug("Screen Saver Deactivated")
+
+        if self.background_image_cache_thread:
+            self.background_image_cache_thread.stop_activity()
+            self.background_image_cache_thread = None
+
+        show_change_profile = settings.getSetting('changeProfileOnScreenSaver') == 'true'
+        if show_change_profile:
+            home_screen = HomeWindow()
+            skip_select_user = home_screen.get_property("skip_select_user")
+            if skip_select_user is not None and skip_select_user == "true":
+                return
+            xbmc.executebuiltin("RunPlugin(plugin://plugin.video.valencecon/?mode=CHANGE_PROFILE)")
+
+
 class Service(xbmc.Player):
 
     def __init__(self, *args):
@@ -1357,6 +1729,8 @@ class Service(xbmc.Player):
         home_window = HomeWindow()
         home_window.set_property('currently_playing_id', valence_item_id)
         home_window.set_property('now_playing', json.dumps(play_data))
+        if play_data.get("play_session_id"):
+            api.playback_session_heartbeat(play_data["play_session_id"], True)
 
         played_information_string = home_window.get_property('played_information')
         if played_information_string:
@@ -1379,6 +1753,8 @@ class Service(xbmc.Player):
             play_data["paused"] = True
             home_window = HomeWindow()
             home_window.set_property('now_playing', json.dumps(play_data))
+            if play_data.get("play_session_id"):
+                api.playback_session_heartbeat(play_data["play_session_id"], False)
 
     def onPlayBackResumed(self):
         play_data = get_playing_data()
@@ -1386,6 +1762,8 @@ class Service(xbmc.Player):
             play_data["paused"] = False
             home_window = HomeWindow()
             home_window.set_property('now_playing', json.dumps(play_data))
+            if play_data.get("play_session_id"):
+                api.playback_session_heartbeat(play_data["play_session_id"], True)
 
     def onPlayBackEnded(self):
         log.debug("onPlayBackEnded")

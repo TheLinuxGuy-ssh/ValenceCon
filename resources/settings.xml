@@ -1,27 +1,25 @@
 <?xml version="1.0" encoding="utf-8" standalone="yes"?>
 <settings>
-	<category label="30014">
+	<category label="30096">
 
-		<setting label="30388" type="lsep"/>
-		<setting label="30011" type="action" action="RunScript(plugin.video.valencecon,0,?mode=DETECT_SERVER)" option="close"/>
-		<setting id="server_address" type="text" label="30000" default="" visible="true" enable="true" />
+		<setting label="30093" type="lsep"/>
+		<setting label="30103" type="action" action="RunPlugin(plugin://plugin.video.valencecon/?mode=DETECT_SERVER)" option="close"/>
+		<setting id="server_address" type="text" label="30107" default="" visible="true" enable="true" />
 		<setting id="verify_cert" type="bool" label="30003" default="true" visible="true" enable="true" />
 
-		<setting label="30389" type="lsep"/>
+		<setting label="30097" type="lsep"/>
 		<setting type="sep" />
-		<setting label="30012" type="action" action="RunScript(plugin.video.valencecon,0,?mode=CHANGE_PROFILE)" option="close"/>
-		<setting id="profile_name" type="text" label="30024" />
-		<setting id="api_key" type="text" label="30367" default="" visible="true" enable="true" />
+		<setting label="30104" type="action" action="RunPlugin(plugin://plugin.video.valencecon/?mode=CHANGE_PROFILE)" option="close"/>
+		<setting id="profile_name" type="text" label="30106" default="" visible="true" enable="false" />
+		<setting id="api_key" type="text" label="30094" default="" visible="true" enable="true" />
 		<setting id="save_user_to_settings" type="bool" label="30378" default="true" visible="true" enable="true" />
 
 	</category>
-	<category label="30207">
+	<category label="30098">
 
 		<setting label="30437" type="lsep"/>
 		<setting type="sep" />
 		<setting id="play_cinema_intros" type="bool" label="30438" default="false" visible="true" enable="true" />
-
-		<!--<setting id="playback_type" type="select" label="30206" lvalues="30209|30210|30211" default="1" />-->
 
 		<setting label="30238" type="lsep"/>
 		<setting type="sep" />
@@ -45,7 +43,7 @@
                 <setting id="max_play_queue" type="slider" label="30447" default="200" range="20, 10, 1000" option="int" visible="true"/>
 
 	</category>
-	<category label="30214">
+	<category label="30099">
 
 		<setting label="30440" type="lsep"/>
 		<setting type="sep" />
@@ -71,7 +69,7 @@
 		<setting id="cacheImagesOnScreenSaver_interval" type="slider" label="30400" default="0" range="0,1,60" option="int" visible="true"/>
 
 	</category>
-	<category label="30110">
+	<category label="30100">
 
 		<setting label="30216" type="lsep"/>
 		<setting type="sep" />
@@ -111,32 +109,32 @@
 		<setting id="interface_mode" type="select" label="30225" lvalues="30226|30227" default="0" visible="true"/>
 
 	</category>
-	
+
 	<category label="30666">
 
 		<setting label="30670" type="lsep"/>
-		<setting id="intro_skipper_action" type="select" label="30667" lvalues="30673|30672|30674" default="0" visible="true" enable="true" />
+		<setting id="intro_skipper_action" type="select" label="30667" lvalues="30672|30673|30674" default="0" visible="true" enable="true" />
 		<setting id="intro_skipper_start_offset" type="slider" label="30668" default="0" range="0,1,3" option="int" visible="true" enable="true"/>
 		<setting id="intro_skipper_end_offset" type="slider" label="30669" default="1" range="0,1,3" option="int" visible="true" enable="true"/>
 		<setting label="30671" type="lsep"/>
-		<setting id="credit_skipper_action" type="select" label="30667" lvalues="30673|30672|30674" default="0" visible="true" enable="true" />
+		<setting id="credit_skipper_action" type="select" label="30667" lvalues="30672|30673|30674" default="0" visible="true" enable="true" />
 		<setting id="credit_skipper_start_offset" type="slider" label="30668" default="0" range="0,1,3" option="int" visible="true" enable="true" />
 		<setting id="credit_skipper_end_offset" type="slider" label="30669" default="1" range="0,1,3" option="int" visible="true" enable="true"/>
 		<setting label="30675" type="lsep"/>
-		<setting id="commercial_skipper_action" type="select" label="30667" lvalues="30673|30672|30674" default="0" visible="true" enable="true" />
+		<setting id="commercial_skipper_action" type="select" label="30667" lvalues="30672|30673|30674" default="0" visible="true" enable="true" />
 		<setting id="commercial_skipper_start_offset" type="slider" label="30668" default="0" range="0,1,3" option="int" visible="true" enable="true"/>
 		<setting id="commercial_skipper_end_offset" type="slider" label="30669" default="1" range="0,1,3" option="int" visible="true" enable="true"/>
 		<setting label="30676" type="lsep"/>
-		<setting id="preview_skipper_action" type="select" label="30667" lvalues="30673|30672|30674" default="0" visible="true" enable="true" />
+		<setting id="preview_skipper_action" type="select" label="30667" lvalues="30672|30673|30674" default="0" visible="true" enable="true" />
 		<setting id="preview_skipper_start_offset" type="slider" label="30668" default="0" range="0,1,3" option="int" visible="true" enable="true" />
 		<setting id="preview_skipper_end_offset" type="slider" label="30669" default="1" range="0,1,3" option="int" visible="true" enable="true"/>
 		<setting label="30677" type="lsep"/>
-		<setting id="recap_skipper_action" type="select" label="30667" lvalues="30673|30672|30674" default="0" visible="true" enable="true" />
+		<setting id="recap_skipper_action" type="select" label="30667" lvalues="30672|30673|30674" default="0" visible="true" enable="true" />
 		<setting id="recap_skipper_start_offset" type="slider" label="30668" default="0" range="0,1,3" option="int" visible="true" enable="true"/>
 		<setting id="recap_skipper_end_offset" type="slider" label="30669" default="1" range="0,1,3" option="int" visible="true" enable="true"/>
 	</category>
 
-	<category label="30111">
+	<category label="30102">
 
 		<setting label="30343" type="lsep"/>
 		<setting id="websocket_enabled" type="bool" label="30310" default="true" visible="true" enable="true" />

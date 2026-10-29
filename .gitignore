@@ -225,10 +225,17 @@ venv
 
 # Addon files
 addon.xml
+*.zip
+/dist/
 
-# Environment files
+# Python caches and environments
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.venv/
+.mypy_cache/
+
+# Environment variable Files
+
 .env
 .env.*
-
-# Test results
-test_results*.json

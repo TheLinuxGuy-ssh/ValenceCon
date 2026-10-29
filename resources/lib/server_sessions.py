@@ -31,7 +31,7 @@ def show_server_sessions():
     list_items = []
     settings = xbmcaddon.Addon()
     server = settings.getSetting('server_address')
-    
+
     for session in results:
         device_name = session.get("DeviceName", "na") or session.get("deviceName", "na")
         user_name = session.get("UserName", "na") or session.get("userName", "na")

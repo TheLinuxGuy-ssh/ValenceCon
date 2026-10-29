@@ -199,7 +199,7 @@ class PlayNextDialog(xbmcgui.WindowXMLDialog):
             play_info["item_id"] = next_item_id
             play_info["auto_resume"] = "-1"
             play_info["force_transcode"] = False
-            send_event_notification("jellycon_play_action", play_info)
+            send_event_notification("valencecon_play_action", play_info)
         elif control_id == 3014:
             self.close()
 
@@ -215,7 +215,7 @@ class SkipDialog(xbmcgui.WindowXMLDialog):
     media_id = None
     start = None
     end = None
-    
+
     has_been_dismissed_or_skipped = False
 
     def __init__(self, *args, **kwargs):
@@ -256,7 +256,7 @@ class SkipDialog(xbmcgui.WindowXMLDialog):
 
     def get_play_called(self):
         return self.play_called
-    
+
     def is_button_shown(self):
         try:
             self.getFocus()

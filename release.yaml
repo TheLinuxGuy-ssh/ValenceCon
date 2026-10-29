@@ -1,12 +1,7 @@
-version: '1.0.0'
+version: '1.0.17'
 changelog: |-
-  Initial ValenceCon Release
-  -------------------------
-  + Ported from JellyCon to Valence API
-  + Profile-based authentication
-  + Movies, TV Shows, Music, Books, Live TV support
-  + Continue watching / Up next
-  + Transcoding and direct play support
+  List show libraries as series with correctly ordered season and episode folders
+  Load seasons and episodes from the Valence show detail route
 dependencies:
   py2:
     - addon: 'xbmc.python'

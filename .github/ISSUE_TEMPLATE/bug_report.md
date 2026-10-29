@@ -28,7 +28,7 @@ assignees: ''
 
 **System (please complete the following information):**
  - OS: [e.g. Android, Debian, Windows]
- - Jellyfin Version: [e.g. 10.0.1]
+ - Valence Version: [e.g. 10.0.1]
  - Kodi Version: [e.g. 18.3]
  - Addon Version: [e.g. 0.1.1]
 

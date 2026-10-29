@@ -41,14 +41,16 @@ def get_content(url, params):
     view_type = ""
     content_type = ""
     media_type = str(media_type).lower().strip()
-    
+
     # Parse URL to get query params
     from six.moves.urllib.parse import urlparse, parse_qs
     parsed_url = urlparse(url)
     url_params = parse_qs(parsed_url.query)
+    is_show_collection = bool(re.search(
+        r"/libraries/[^/]+/shows/?$", parsed_url.path.rstrip("/")))
     # Convert lists to single values
     url_params = {k: v[0] if v else '' for k, v in url_params.items()}
-    
+
     if media_type.startswith("movie"):
         view_type = "Movies"
         content_type = 'movies'
@@ -61,7 +63,7 @@ def get_content(url, params):
     elif media_type == "musicartist":
         view_type = "Albums"
         content_type = 'albums'
-    elif media_type == "music" or media_type == "audio" or media_type == "musicalbum":
+    elif media_type in ("music", "audio", "musicalbum", "musictrack"):
         view_type = "Music"
         content_type = 'songs'
     elif media_type.startswith("boxsets"):
@@ -102,46 +104,29 @@ def get_content(url, params):
         progress.create(translate_string(30112))
         progress.update(0, translate_string(30113))
 
-    # update url for paging
-    start_index = int(url_params.get("startIndex", url_params.get("StartIndex", 0)))
+    # Use the requested limit as the page size for every paged library type.
+    # The old page controls only covered movies and shows, so albums, artists,
+    # and other library views silently stopped at their first 20 results.
+    try:
+        start_index = max(0, int(url_params.get("offset", url_params.get("startIndex", 0))))
+    except (TypeError, ValueError):
+        start_index = 0
     url_limit = url_params.get("limit", url_params.get("Limit"))
-    movie_page_limit = int(settings.getSetting('moviePageSize'))
-    show_page_limit = int(settings.getSetting('showPageSize'))
-    url_prev = None
-    url_next = None
-    
-    if not url_limit or start_index > 0:
-        if movie_page_limit > 0 and media_type.startswith("movie"):
-            log.debug("UPDATING NEXT URL: {0}".format(url))
-            log.debug("current_start : {0}".format(start_index))
-            if start_index > 0:
-                prev_index = start_index - movie_page_limit
-                if prev_index < 0:
-                    prev_index = 0
-                url_prev = update_url_param(url, 'startIndex', str(prev_index))
-                url_next = update_url_param(url, 'startIndex', str(start_index + movie_page_limit))
-                log.debug("UPDATING NEXT URL: {0}".format(url_next))
-            else:
-                log.debug("ADDING NEXT URL: {0}".format(url))
-                url_next = update_url_param(url, 'startIndex', str(start_index + movie_page_limit))
-                url = update_url_param(url, 'startIndex', str(start_index))
-                log.debug("ADDING NEXT URL: {0}".format(url_next))
+    try:
+        page_size = int(url_limit or 0)
+    except (TypeError, ValueError):
+        page_size = 0
+    movie_page_limit = int(settings.getSetting('moviePageSize') or 0)
+    show_page_limit = int(settings.getSetting('showPageSize') or 0)
+    if movie_page_limit > 0 and media_type.startswith("movie"):
+        page_size = movie_page_limit
+    elif show_page_limit > 0 and media_type.startswith("tvshow"):
+        page_size = show_page_limit
 
-        if show_page_limit > 0 and media_type.startswith("tvshow"):
-            log.debug("UPDATING NEXT URL: {0}".format(url))
-            log.debug("current_start : {0}".format(start_index))
-            if start_index > 0:
-                prev_index = start_index - show_page_limit
-                if prev_index < 0:
-                    prev_index = 0
-                url_prev = update_url_param(url, 'startIndex', str(prev_index))
-                url_next = update_url_param(url, 'startIndex', str(start_index + show_page_limit))
-                log.debug("UPDATING NEXT URL: {0}".format(url_next))
-            else:
-                log.debug("ADDING NEXT URL: {0}".format(url))
-                url_next = update_url_param(url, 'startIndex', str(start_index + show_page_limit))
-                url = update_url_param(url, 'startIndex', str(start_index))
-                log.debug("ADDING NEXT URL: {0}".format(url_next))
+    should_paginate = page_size > 0 and not is_show_collection
+    if should_paginate and not isinstance(url, (list, tuple)):
+        url = update_url_param(url, 'limit', str(page_size))
+        url = update_url_param(url, 'offset', str(start_index))
 
     use_cache = params.get("use_cache", "true") == "true"
 
@@ -151,43 +136,45 @@ def get_content(url, params):
 
     log.debug("total_records: {0}".format(total_records))
 
-    if not url_limit or start_index > 0:
-        # add paging items
-        if movie_page_limit > 0 and media_type.startswith("movie"):
-            if url_prev:
-                list_item = xbmcgui.ListItem("Prev Page (" + str(start_index - movie_page_limit + 1) + "-" + str(start_index) +
-                                             " of " + str(total_records) + ")")
-                u = sys.argv[0] + "?url=" + quote(url_prev) + "&mode=GET_CONTENT&media_type=movies"
-                log.debug("ADDING PREV ListItem: {0} - {1}".format(u, list_item))
-                dir_items.insert(0, (u, list_item, True))
+    if should_paginate and not isinstance(url, (list, tuple)):
+        # Media pages report a real total; music and book list routes currently
+        # return only the page array, so a full page is the signal to offer one
+        # more page for those collections.
+        has_total = content_type in ('movies', 'tvshows', 'episodes', 'sets', 'videos')
+        page_end = start_index + len(dir_items)
+        has_next = total_records > page_end
+        if not has_total and len(dir_items) >= page_size:
+            has_next = True
 
-            if start_index + movie_page_limit < total_records:
-                upper_count = start_index + (movie_page_limit * 2)
-                if upper_count > total_records:
-                    upper_count = total_records
-                list_item = xbmcgui.ListItem("Next Page (" + str(start_index + movie_page_limit + 1) + "-" +
-                                             str(upper_count) + " of " + str(total_records) + ")")
-                u = sys.argv[0] + "?url=" + quote(url_next) + "&mode=GET_CONTENT&media_type=movies"
-                log.debug("ADDING NEXT ListItem: {0} - {1}".format(u, list_item))
-                dir_items.append((u, list_item, True))
-        # add paging items
-        if show_page_limit > 0 and media_type.startswith("tvshow"):
-            if url_prev:
-                list_item = xbmcgui.ListItem("Prev Page (" + str(start_index - show_page_limit + 1) + "-" + str(start_index) +
-                                             " of " + str(total_records) + ")")
-                u = sys.argv[0] + "?url=" + quote(url_prev) + "&mode=GET_CONTENT&media_type=tvshows"
-                log.debug("ADDING PREV ListItem: {0} - {1}".format(u, list_item))
-                dir_items.insert(0, (u, list_item, True))
+        def page_url(offset):
+            target = update_url_param(url, 'offset', str(offset))
+            plugin_url = (sys.argv[0] + "?url=" + quote(target) +
+                          "&mode=GET_CONTENT&media_type=" + quote(media_type))
+            if params.get("sort"):
+                plugin_url += "&sort=" + quote(str(params.get("sort")))
+            if params.get("name_format"):
+                plugin_url += "&name_format=" + quote(str(params.get("name_format")))
+            return plugin_url
 
-            if start_index + show_page_limit < total_records:
-                upper_count = start_index + (show_page_limit * 2)
-                if upper_count > total_records:
-                    upper_count = total_records
-                list_item = xbmcgui.ListItem("Next Page (" + str(start_index + show_page_limit + 1) + "-" +
-                                             str(upper_count) + " of " + str(total_records) + ")")
-                u = sys.argv[0] + "?url=" + quote(url_next) + "&mode=GET_CONTENT&media_type=tvshows"
-                log.debug("ADDING NEXT ListItem: {0} - {1}".format(u, list_item))
-                dir_items.append((u, list_item, True))
+        if start_index > 0:
+            prev_start = max(0, start_index - page_size)
+            previous_end = start_index - 1
+            previous_label = "Prev Page ({}-{})".format(prev_start + 1, previous_end + 1)
+            list_item = xbmcgui.ListItem(previous_label)
+            dir_items.insert(0, (page_url(prev_start), list_item, True))
+
+        if has_next:
+            next_start = start_index + page_size
+            next_end = next_start + page_size
+            if has_total:
+                next_end = min(next_end, total_records)
+                next_label = "Next Page ({}-{} of {})".format(
+                    next_start + 1, next_end, total_records)
+            else:
+                next_label = "Next Page ({}-{})".format(
+                    next_start + 1, next_end)
+            list_item = xbmcgui.ListItem(next_label)
+            dir_items.append((page_url(next_start), list_item, True))
 
     # set the Kodi content type
     if content_type:
@@ -283,6 +270,21 @@ def set_sort(pluginhandle, view_type, default_sort):
 
 
 @timer
+def _filter_items_alpha(item_list, alpha_filter):
+    """Filter a list of ItemDetails by initial letter. '#' matches non A-Z titles"""
+    letter = alpha_filter.upper()
+
+    def matches(name):
+        if not name:
+            return letter == '#'
+        first = name[:1]
+        if letter == '#':
+            return not first.isalpha()
+        return first.upper() == letter
+
+    return [it for it in item_list if matches(getattr(it, 'name', None))]
+
+
 def process_directory(url, progress, params, use_cache_data=False):
     log.debug("== ENTER: processDirectory ==")
 
@@ -307,44 +309,72 @@ def process_directory(url, progress, params, use_cache_data=False):
     gui_options["server"] = server
     gui_options["name_format"] = name_format
     gui_options["name_format_type"] = name_format_type
+    gui_options["media_type"] = params.get("media_type")
+    gui_options["season_number"] = params.get("season_number")
 
     use_cache = settings.getSetting("use_cache") == "true" and use_cache_data
+    # A show detail URL is shared by the season-folder view and the selected
+    # season episode view. Keep both uncached so their different shapes cannot
+    # collide in a URL-only cache entry.
+    if (params.get("media_type") or "").lower() in ("series", "season", "episodes"):
+        use_cache = False
     default_filters = get_default_filters()
 
     # Fix skin shortcuts from pre-0.5.0
     item_limit = int(settings.getSetting("show_x_filtered_items"))
-    
+
     # Update URL params for Valence
-    url = url.replace('{server}', '')
-    url = url.replace('{field_filters}', default_filters)
-    url = url.replace('{ItemLimit}', str(item_limit))
+    # normalize per-url template tokens (url may be a single path or a list)
+    def _normalize(u):
+        u = u.replace('{server}', '')
+        u = u.replace('{field_filters}', default_filters)
+        u = u.replace('{ItemLimit}', str(item_limit))
+        return u
+
+    if isinstance(url, (list, tuple)):
+        url = [_normalize(u) for u in url]
+    else:
+        url = _normalize(url)
 
     cache_file, item_list, total_records, cache_thread = data_manager.get_items(url, gui_options, use_cache)
+
+    # optional client-side alpha filter (A-Z menus)
+    alpha_filter = params.get("alpha")
+    if alpha_filter:
+        item_list = _filter_items_alpha(item_list, alpha_filter)
+
+    # The Valence /shows index has no filter query parameters. Apply the show
+    # menu filters to its returned series rows locally instead.
+    show_filter = params.get("show_filter")
+    if show_filter == "favorite":
+        item_list = [item for item in item_list if item.favorite == "true"]
+    elif show_filter == "unplayed":
+        item_list = [item for item in item_list if item.unwatched_episodes > 0]
+    elif show_filter == "unwatched":
+        item_list = [item for item in item_list if item.watched_episodes == 0]
+
+    title_query = params.get("title_query")
+    if title_query:
+        normalized_query = title_query.lower()
+        item_list = [item for item in item_list
+                     if normalized_query in (item.name or "").lower()]
 
     # flatten single season
     flatten_single_season = settings.getSetting("flatten_single_season") == "true"
     if flatten_single_season and len(item_list) == 1 and item_list[0].item_type == "Season":
-        season_id = item_list[0].id
+        season = item_list[0]
         series_id = item_list[0].series_id
-        # Build Valence URL for episodes in a season
-        libraries = api.get_libraries()
-        library_id = None
-        for lib in libraries:
-            if lib.get('kind') in ['shows', 'anime']:
-                library_id = lib.get('id')
-                break
-        
+        library_id = season.library_id
+
         if library_id:
-            season_url = get_valence_url('/libraries/{}/items'.format(library_id), {
-                'seasonId': season_id,
-                'seriesId': series_id,
-                'limit': item_limit,
-                'fields': default_filters,
-                'type': 'episode',
-            })
+            season_url = get_valence_url(
+                '/libraries/{}/shows/{}'.format(
+                    quote(str(library_id), safe=''), quote(str(series_id), safe='')),
+                {})
             if progress is not None:
                 progress.close()
-            params["media_type"] = "Episodes"
+            params["media_type"] = "Season"
+            params["season_number"] = str(season.season_number)
             get_content(season_url, params)
             return None, None, None
 
@@ -368,7 +398,7 @@ def process_directory(url, progress, params, use_cache_data=False):
     detected_type = None
     dir_items = []
     OnlyTotallyUnwatchedTvShow = params.get("OnlyTotallyUnwatchedTvShow", None)
-    
+
     for item_details in item_list:
         if OnlyTotallyUnwatchedTvShow == "1" and item_details.watched_episodes > 0:
             continue
@@ -401,41 +431,43 @@ def process_directory(url, progress, params, use_cache_data=False):
 
         if item_details.is_folder is True:
             if item_details.item_type == "Series":
-                # For Valence, navigate to seasons via library shows endpoint
-                libraries = api.get_libraries()
-                library_id = None
-                for lib in libraries:
-                    if lib.get('kind') in ['shows', 'anime']:
-                        library_id = lib.get('id')
-                        break
-                
+                # A show's detail endpoint contains its seasons and episodes.
+                library_id = item_details.library_id
                 if library_id:
-                    u = get_valence_url('/libraries/{}/shows'.format(library_id), {
-                        'seriesId': item_details.id,
-                        'fields': default_filters,
-                    })
+                    u = get_valence_url(
+                        '/libraries/{}/shows/{}'.format(
+                            quote(str(library_id), safe=''),
+                            quote(str(item_details.id), safe='')),
+                        {})
                 else:
                     u = item_details.id  # fallback
 
             elif item_details.item_type == "Season":
-                # Navigate to episodes in season
-                libraries = api.get_libraries()
-                library_id = None
-                for lib in libraries:
-                    if lib.get('kind') in ['shows', 'anime']:
-                        library_id = lib.get('id')
-                        break
-                
+                # Valence nests episodes under the show detail response; Kodi
+                # passes the season number for local filtering in DataManager.
+                library_id = item_details.library_id
                 if library_id:
-                    u = get_valence_url('/libraries/{}/items'.format(library_id), {
-                        'seasonId': item_details.id,
-                        'seriesId': item_details.series_id,
-                        'type': 'episode',
-                        'limit': item_limit,
-                        'fields': default_filters,
-                    })
+                    u = get_valence_url(
+                        '/libraries/{}/shows/{}'.format(
+                            quote(str(library_id), safe=''),
+                            quote(str(item_details.series_id), safe='')),
+                        {})
                 else:
                     u = item_details.id
+
+            elif item_details.item_type == "MusicAlbum":
+                # The tracks collection endpoint requires an `ids` parameter
+                # and does not accept an albumId filter. Album detail returns
+                # the album's tracks in the `tracks` array, which DataManager
+                # already normalizes into Kodi directory items.
+                u = '/music/albums/{}'.format(quote(str(item_details.id), safe=''))
+
+            elif item_details.item_type == "MusicArtist":
+                u = get_valence_url('/music/albums', {
+                    'artistId': item_details.id,
+                    'limit': item_limit,
+                    'fields': default_filters,
+                })
 
             else:
                 # Generic folder - use items endpoint
@@ -444,7 +476,7 @@ def process_directory(url, progress, params, use_cache_data=False):
                 for lib in libraries:
                     library_id = lib.get('id')
                     break
-                
+
                 if library_id:
                     u = get_valence_url('/libraries/{}/items'.format(library_id), {
                         'parentId': item_details.id,
@@ -463,15 +495,6 @@ def process_directory(url, progress, params, use_cache_data=False):
             else:
                 log.debug("Dropping empty folder item : {0}".format(item_details.__dict__))
 
-        elif item_details.item_type == "MusicArtist":
-            u = get_valence_url('/music/artists/{}/albums'.format(item_details.id), {
-                'limit': item_limit,
-                'fields': default_filters,
-            })
-            gui_item = add_gui_item(u, item_details, display_options)
-            if gui_item:
-                dir_items.append(gui_item)
-
         else:
             # Playable item
             u = item_details.id
@@ -485,22 +508,16 @@ def process_directory(url, progress, params, use_cache_data=False):
             and first_season_item is not None
             and len(dir_items) > 1
             and first_season_item.series_id is not None):
-        
-        libraries = api.get_libraries()
-        library_id = None
-        for lib in libraries:
-            if lib.get('kind') in ['shows', 'anime']:
-                library_id = lib.get('id')
-                break
-        
+
+        library_id = first_season_item.library_id
+
         if library_id:
-            series_url = get_valence_url('/libraries/{}/items'.format(library_id), {
-                'seriesId': first_season_item.series_id,
-                'type': 'episode',
-                'limit': item_limit,
-                'fields': default_filters,
-            })
-            
+            series_url = get_valence_url(
+                '/libraries/{}/shows/{}'.format(
+                    quote(str(library_id), safe=''),
+                    quote(str(first_season_item.series_id), safe='')),
+                {})
+
             played = 0
             overlay = "7"
             if total_unwatched == 0:
@@ -516,6 +533,9 @@ def process_directory(url, progress, params, use_cache_data=False):
             item_details.overlay = overlay
             item_details.name_format = "Episode|episode_name_format"
             item_details.series_name = first_season_item.series_name
+            item_details.series_id = first_season_item.series_id
+            item_details.library_id = library_id
+            item_details.season_number = -1
             item_details.item_type = "Season"
             item_details.unwatched_episodes = total_unwatched
             item_details.total_episodes = total_episodes

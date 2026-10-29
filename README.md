@@ -1,41 +1,75 @@
-# ValenceCon
+<div align="center">
+  <img src="icon.png" alt="ValenceCon logo" width="132" />
+  <h1>ValenceCon</h1>
+  <p>A Kodi add-on for browsing and playing media from a Valence server.</p>
+  <p>
+    <a href="https://github.com/TheLinuxGuy-ssh/ValenceCon/actions/workflows/ci.yaml"><img src="https://github.com/TheLinuxGuy-ssh/ValenceCon/actions/workflows/ci.yaml/badge.svg?branch=master" alt="CI status" /></a>
+    <a href="https://github.com/TheLinuxGuy-ssh/ValenceCon/releases/latest"><img src="https://img.shields.io/github/v/release/TheLinuxGuy-ssh/ValenceCon" alt="Latest release" /></a>
+    <a href="LICENSE.txt"><img src="https://img.shields.io/github/license/TheLinuxGuy-ssh/ValenceCon" alt="License" /></a>
+  </p>
+</div>
 
-ValenceCon is a lightweight Kodi add-on that lets you browse and play media files directly from your Valence server within the Kodi interface. It can be thought of as a thin frontend for a Valence server.
+ValenceCon connects Kodi to a [Valence](https://www.getvalence.app/) media server. Browse supported libraries, open series and seasons, and play media from the Kodi interface.
 
-ValenceCon can be used with Movie, TV Show, Anime, Music, Book, and Live TV libraries. It can easily switch between multiple profiles at will. It's easy to integrate with any customizable Kodi skin with a large collection of custom menus. Media items are populated from the server dynamically, and menu speed will vary based on local device speed.
+## Features
 
+- Browse movie, television, anime, music, book, and live TV libraries.
+- Navigate shows by series, season, and episode.
+- Connect to multiple libraries and Valence profiles.
+- Use library views and add-on features from compatible Kodi skins.
+
+## Requirements
+
+- Kodi 19 or later with Python 3 add-on support.
+- A reachable Valence server and a valid API key.
 
 ## Installation
 
-#### 1. Manual Installation
+1. Open the [latest ValenceCon release](https://github.com/TheLinuxGuy-ssh/ValenceCon/releases/latest).
+2. Download the `plugin.video.valencecon+py3.zip` asset.
+3. In Kodi, choose **Add-ons → Install from zip file** and select the downloaded archive. If prompted, allow installation from unknown sources in Kodi settings.
+4. Open ValenceCon and enter the Valence server address and API key. Select a profile if prompted.
 
-Download the latest release zip from the [ValenceCon releases](https://github.com/valenceOSS/valence/releases) and install via Kodi's "Install from zip file" option.
-
-#### 2. First Run Setup
-
-- Within a few seconds after installation, you will be prompted for your Valence server URL.
-- Enter your Valence server address (e.g., `http://valence.local:8420` or `https://valence.example.com`)
-- Select a profile from the list
-- If the profile has a PIN, enter it when prompted
+For a specific version, choose it from the [release history](https://github.com/TheLinuxGuy-ssh/ValenceCon/releases).
 
 ## Configuration
 
-#### Configuring Home
+Set the server address and API key in ValenceCon’s settings. Keep the API key private. When reporting an issue, remove API keys, private server addresses, and personal library information from logs and screenshots.
 
-Many Kodi skins allow for customizing of the home menu with custom nodes and widgets. Rather than a step by step guide, this section serves as an introduction to customizing a skin.
+Kodi skins that support custom home menus or widgets can link directly to ValenceCon library and global-list views. The exact setup steps depend on the skin; consult its documentation for adding video add-on paths as menu entries or widgets.
 
-Examples:
+## Development
 
-If you would like a link on the home screen to open a library in your Valence server called "Kid's Movies", you would point the menu item to the path: Add-On -> Video Add-On -> ValenceCon -> Valence Libraries -> Kid's Movies -> Create menu item to here.
+Install the development dependencies and run the offline regression checks:
 
-Beyond just modifying where the home menu headers go, many skins also allow you to use widgets. Widgets help populate the home screen with data, often the posters of media in the selected image. If you would like to display the most recent movies across all of your Valence libraries on the home screen, the path would be: Add-On -> Video Add-On -> ValenceCon -> Global Lists -> Movies -> Movies - Recently Added (20) -> Use as widget
+```sh
+python3 -m pip install -r requirements-dev.txt
+python3 -m unittest discover -s tests -v
+```
 
-Another common use case of widgets would be to display the next available episodes of shows that you may be watching:
+Build the Kodi Python 3 add-on archive locally:
 
-    Add-On -> Video Add-On -> ValenceCon -> Valence Libraries -> Anime -> Anime - Next Up (20) -> Use as widget
-    Add-On -> Video Add-On -> ValenceCon -> Global Lists -> TV Shows -> TV Shows - Next Up (20) -> Use as widget
+```sh
+python3 build.py --version py3
+```
 
+The generated archive is written to `dist/plugin.video.valencecon+py3.zip`, which is ignored by Git. Tagged releases build the archive and attach it to the corresponding GitHub Release.
+
+## Repository layout
+
+```text
+resources/lib/       Add-on implementation
+resources/language/  Kodi translations
+resources/skins/     Skin integration assets
+tests/               Offline regression tests
+tools/               Optional Valence API diagnostic utility
+.github/workflows/   Continuous integration and release automation
+```
+
+## Support and contributions
+
+Use [GitHub Issues](https://github.com/TheLinuxGuy-ssh/ValenceCon/issues) for bug reports and feature requests. See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Security reports should follow [SECURITY.md](SECURITY.md).
 
 ## License
 
-ValenceCon is licensed under the terms of the [MIT License](LICENSE.txt).
+ValenceCon is distributed under the GNU General Public License, version 2. See [LICENSE.txt](LICENSE.txt).

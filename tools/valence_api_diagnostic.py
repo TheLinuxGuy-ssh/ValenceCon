@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""
-Valence API Safety Test Harness
-Only performs READ operations (GET/HEAD) against the Valence API.
-NO destructive actions - safe for production testing.
+"""Optional, manual read-only diagnostic for a configured Valence server.
+
+This tool is not part of CI. It makes network requests only when explicitly
+run by a developer with VALENCE_URL and, when needed, VALENCE_API configured.
 """
 
 import sys
@@ -13,7 +13,7 @@ from urllib.parse import urljoin
 
 # Load .env file if present
 def load_env():
-    env_path = os.path.join(os.path.dirname(__file__), '.env')
+    env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env')
     if os.path.exists(env_path):
         with open(env_path) as f:
             for line in f:
@@ -24,7 +24,7 @@ def load_env():
 
 load_env()
 
-class ValenceTestHarness:
+class ReadOnlyValenceDiagnostics:
     def __init__(self, base_url, api_key=None):
         self.base_url = base_url.rstrip('/')
         self.api_url = urljoin(self.base_url, '/api/')
@@ -76,7 +76,7 @@ class ValenceTestHarness:
     def run_safety_tests(self):
         """Run all safe read-only tests"""
         print(f"\n{'='*60}")
-        print(f"Valence API Safety Test Harness")
+        print(f"Valence API Read-Only Diagnostics")
         print(f"Base URL: {self.base_url}")
         print(f"API URL:  {self.api_url}")
         print(f"{'='*60}\n")
@@ -147,7 +147,7 @@ class ValenceTestHarness:
         """Test a specific library's items (read-only)"""
         print(f"\n📂 Testing Library: {library_id}")
         self.test(f"Library Items (first 5)", "GET", f"/libraries/{library_id}/items", params={'limit': 5})
-        self.test(f"Library Shows", "GET", f"/libraries/{library_id}/shows", params={'limit': 5})
+        self.test(f"Library Shows", "GET", f"/libraries/{library_id}/shows")
     
     def test_media_item(self, media_id):
         """Test a specific media item (read-only)"""
@@ -175,7 +175,7 @@ class ValenceTestHarness:
 
 def main():
     import argparse
-    parser = argparse.ArgumentParser(description='Valence API Safety Test Harness')
+    parser = argparse.ArgumentParser(description='Optional read-only Valence API diagnostics')
     parser.add_argument('url', nargs='?', default=os.environ.get('VALENCE_URL'), help='Valence server URL (e.g., http://localhost:8420) or set VALENCE_URL in .env')
     parser.add_argument('--api-key', default=os.environ.get('VALENCE_API'), help='API key for authentication (optional) or set VALENCE_API in .env')
     parser.add_argument('--library', help='Test specific library ID')
@@ -187,11 +187,11 @@ def main():
         print("❌ Error: VALENCE_URL not set. Provide as argument or set in .env")
         sys.exit(1)
     
-    print("⚠️  SAFETY NOTICE: This harness ONLY performs READ operations (GET/HEAD)")
+    print("This diagnostic performs only read-only GET and HEAD requests.")
     print("   No POST/PUT/DELETE requests will be made.")
     print("   Safe for production testing.\n")
     
-    harness = ValenceTestHarness(args.url, args.api_key)
+    harness = ReadOnlyValenceDiagnostics(args.url, args.api_key)
     success = harness.run_safety_tests()
     
     if args.library:

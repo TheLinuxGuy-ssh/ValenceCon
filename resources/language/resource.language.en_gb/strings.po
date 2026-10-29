@@ -1,11 +1,10 @@
 msgid ""
 msgstr ""
-"Project-Id-Version: JellyCon\n"
+"Project-Id-Version: ValenceCon\n"
 "POT-Creation-Date: YEAR-MO-DA HO:MI+ZONE\n"
-"PO-Revision-Date: 2021-11-12 19:59+0000\n"
-"Last-Translator: WWWesten <wwwesten@gmail.com>\n"
-"Language-Team: English <https://translate.jellyfin.org/projects/jellycon/"
-"jellycon/en/>\n"
+"PO-Revision-Date: 2024-10-29 00:00+0000\n"
+"Last-Translator: Valence Contributors\n"
+"Language-Team: English <https://github.com/valenceOSS/valence>\n"
 "Language: en\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
@@ -47,15 +46,15 @@ msgstr "Number of performance profiles to capture"
 
 msgctxt "#30011"
 msgid "[Detect local server]"
-msgstr "[Detect local server]"
+msgstr "[Detect Valence server]"
 
 msgctxt "#30012"
-msgid "[Change user]"
-msgstr "[Change user]"
+msgid "[Change profile]"
+msgstr "[Change profile]"
 
 msgctxt "#30014"
-msgid "Jellyfin"
-msgstr "Jellyfin"
+msgid "Valence"
+msgstr "Valence"
 
 msgctxt "#30015"
 msgid "Log timing data"
@@ -95,11 +94,11 @@ msgstr "Hide unwatched episode details"
 
 msgctxt "#30024"
 msgid "Username:"
-msgstr "Username:"
+msgstr "Profile:"
 
 msgctxt "#30025"
 msgid "Password:"
-msgstr "Password:"
+msgstr "API Key:"
 
 msgctxt "#30026"
 msgid "Widget item select action"
@@ -111,11 +110,11 @@ msgstr "Enable debug logging"
 
 msgctxt "#30044"
 msgid "Incorrect Username/Password"
-msgstr "Incorrect Username/Password"
+msgstr "Incorrect Credentials"
 
 msgctxt "#30045"
 msgid "Username not found"
-msgstr "Username not found"
+msgstr "Profile not found"
 
 msgctxt "#30052"
 msgid "Deleting"
@@ -136,6 +135,66 @@ msgstr "Confirm delete?"
 msgctxt "#30092"
 msgid "Warning: This action will delete the media files from the server."
 msgstr "Warning: This action will delete the media files from the server."
+
+msgctxt "#30093"
+msgid "Valence Server"
+msgstr "Valence Server"
+
+msgctxt "#30094"
+msgid "API Key"
+msgstr "API Key"
+
+msgctxt "#30095"
+msgid "Profile"
+msgstr "Profile"
+
+msgctxt "#30096"
+msgid "Server Connection"
+msgstr "Server Connection"
+
+msgctxt "#30097"
+msgid "Authentication"
+msgstr "Authentication"
+
+msgctxt "#30098"
+msgid "Playback"
+msgstr "Playback"
+
+msgctxt "#30099"
+msgid "Playback Behavior"
+msgstr "Playback Behavior"
+
+msgctxt "#30100"
+msgid "Library Display"
+msgstr "Library Display"
+
+msgctxt "#30101"
+msgid "Skip Intro/Credits"
+msgstr "Skip Intro/Credits"
+
+msgctxt "#30102"
+msgid "Services"
+msgstr "Services"
+
+msgctxt "#30103"
+msgid "Detect Valence Server"
+msgstr "Detect Valence Server"
+
+msgctxt "#30104"
+msgid "Change Profile"
+msgstr "Change Profile"
+
+msgctxt "#30105"
+msgid "Server URL"
+msgstr "Server URL"
+
+msgctxt "#30106"
+msgid "Current Profile"
+msgstr "Current Profile"
+
+msgctxt "#30107"
+msgid "Server URL"
+msgstr "Server URL"
 
 msgctxt "#30110"
 msgid "Interface"
@@ -207,7 +266,7 @@ msgstr "Address:"
 
 msgctxt "#30180"
 msgid "Select User"
-msgstr "Select User"
+msgstr "Select Profile"
 
 msgctxt "#30181"
 msgid "Include plot"
@@ -263,7 +322,7 @@ msgstr "Video force 8 bit"
 
 msgctxt "#30214"
 msgid "Events"
-msgstr "Events"
+msgstr "Playback Behavior"
 
 msgctxt "#30215"
 msgid "On playback stop (100% = disabled)"
@@ -291,7 +350,7 @@ msgstr "Prompt to delete movie after %"
 
 msgctxt "#30222"
 msgid "Item Layout"
-msgstr "Item Layout"
+msgstr "Library Display"
 
 msgctxt "#30223"
 msgid "Page Size and Filtering"
@@ -327,7 +386,7 @@ msgstr "Episodes"
 
 msgctxt "#30236"
 msgid "Force transcode h265 (hevc)"
-msgstr "Force transcode h265 (hevc)"
+msgstr "Force transcode HEVC"
 
 msgctxt "#30237"
 msgid "Start from beginning"
@@ -335,23 +394,23 @@ msgstr "Start from beginning"
 
 msgctxt "#30238"
 msgid "Playback stream options"
-msgstr "Playback stream options"
+msgstr "Bitrate Limits"
 
 msgctxt "#30239"
 msgid "Force transcode mpeg2"
-msgstr "Force transcode mpeg2"
+msgstr "Force transcode MPEG-2"
 
 msgctxt "#30240"
 msgid "Force transcode msmpeg4v3 (divx)"
-msgstr "Force transcode msmpeg4v3 (divx)"
+msgstr "Force transcode MS-MPEG4v3"
 
 msgctxt "#30241"
 msgid "Force transcode mpeg4"
-msgstr "Force transcode mpeg4"
+msgstr "Force transcode MPEG-4"
 
 msgctxt "#30242"
 msgid "Force transcode av1"
-msgstr "Force transcode av1"
+msgstr "Force transcode AV1"
 
 msgctxt "#30246"
 msgid "Search"
@@ -399,7 +458,7 @@ msgstr "Movies - Favorites"
 
 msgctxt "#30260"
 msgid "BoxSets"
-msgstr "BoxSets"
+msgstr "Collections"
 
 msgctxt "#30261"
 msgid "TV Shows"
@@ -462,15 +521,8 @@ msgid "Force Transcode"
 msgstr "Force Transcode"
 
 msgctxt "#30276"
-msgid "Extra Resume Prompt Detected"
-msgstr "Extra Resume Prompt Detected"
-
-msgctxt "#30277"
-msgid "JellyCon needs to prompt for resume on partily played items, Kodi can also prompt, this can cause a double prompt. Do you want to remove the double prompt?"
-msgstr ""
-"JellyCon needs to prompt for resume on partily played items, Kodi can also "
-"prompt, this can cause a double prompt. Do you want to remove the double "
-"prompt?"
+msgid "ValenceCon needs to prompt for resume on partily played items, Kodi can also prompt, this can cause a double prompt. Do you want to remove the double prompt?"
+msgstr "ValenceCon needs to prompt for resume on partially played items, Kodi can also prompt, this can cause a double prompt. Do you want to remove the double prompt?"
 
 msgctxt "#30278"
 msgid " - Next Up"
@@ -489,8 +541,8 @@ msgid "Refresh Cached Images"
 msgstr "Refresh Cached Images"
 
 msgctxt "#30282"
-msgid "No Jellyfin servers detected on your local network."
-msgstr "No Jellyfin servers detected on your local network."
+msgid "No Valence servers detected on your local network."
+msgstr "Your Valence server is not configured yet."
 
 msgctxt "#30283"
 msgid "Play Next Episode?"
@@ -557,8 +609,8 @@ msgid "Cache Images"
 msgstr "Cache Images"
 
 msgctxt "#30300"
-msgid "Cache all Jellyfin images as local Kodi images?"
-msgstr "Cache all Jellyfin images as local Kodi images?"
+msgid "Cache all Valence images as local Kodi images?"
+msgstr "Cache all Valence images as local Kodi images?"
 
 msgctxt "#30301"
 msgid "Caching Images"
@@ -566,15 +618,15 @@ msgstr "Caching Images"
 
 msgctxt "#30302"
 msgid "Existing images : "
-msgstr "Existing images:"
+msgstr "Existing images : "
 
 msgctxt "#30303"
-msgid "Missing Jellyfin images : "
-msgstr "Missing Jellyfin images:"
+msgid "Missing Valence images : "
+msgstr "Missing Valence images : "
 
 msgctxt "#30304"
-msgid "Cached Jellyfin images : "
-msgstr "Cached Jellyfin images:"
+msgid "Cached Valence images : "
+msgstr "Cached Valence images : "
 
 msgctxt "#30305"
 msgid "Not Found"
@@ -597,16 +649,16 @@ msgid "Select Media Source"
 msgstr "Select Media Source"
 
 msgctxt "#30310"
-msgid "Enable Jellyfin remote control"
-msgstr "Enable Jellyfin remote control"
+msgid "Enable Valence remote control"
+msgstr "Enable Valence remote control"
 
 msgctxt "#30311"
 msgid "Library - "
-msgstr "Library -"
+msgstr "Library - "
 
 msgctxt "#30312"
 msgid "All - "
-msgstr "All -"
+msgstr "All - "
 
 msgctxt "#30313"
 msgid "Menu"
@@ -632,9 +684,17 @@ msgctxt "#30318"
 msgid "Music - Albums"
 msgstr "Music - Albums"
 
+msgctxt "#30319"
+msgid "Music - All Album Artists"
+msgstr "Music - All Album Artists"
+
 msgctxt "#30320"
 msgid " - Albums"
 msgstr "- Albums"
+
+msgctxt "#30321"
+msgid " - Album Artists"
+msgstr "- Album Artists"
 
 msgctxt "#30322"
 msgid "Auto resume"
@@ -662,7 +722,7 @@ msgstr "Screensaver"
 
 msgctxt "#30330"
 msgid "Show change user dialog"
-msgstr "Show change user dialog"
+msgstr "Show change profile dialog"
 
 msgctxt "#30331"
 msgid "Movies per page"
@@ -677,8 +737,8 @@ msgid "Cache artwork in the background"
 msgstr "Cache artwork in the background"
 
 msgctxt "#30334"
-msgid "Use JellyCon context menu"
-msgstr "Use JellyCon context menu"
+msgid "Use ValenceCon context menu"
+msgstr "Use ValenceCon context menu"
 
 msgctxt "#30337"
 msgid "Song"
@@ -713,12 +773,12 @@ msgid "Number of images removed from cache"
 msgstr "Number of images removed from cache"
 
 msgctxt "#30345"
-msgid "Cache Jellyfin server data requests"
-msgstr "Cache Jellyfin server data requests"
+msgid "Cache Valence server data requests"
+msgstr "Cache Valence server data requests"
 
 msgctxt "#30346"
 msgid "Deleteing Cached Images"
-msgstr "Deleteing Cached Images"
+msgstr "Deleting Cached Images"
 
 msgctxt "#30347"
 msgid "Getting Existing Images"
@@ -743,14 +803,6 @@ msgstr "Music - Recently Played"
 msgctxt "#30352"
 msgid "Music - Frequently Played"
 msgstr "Music - Frequently Played"
-
-msgctxt "#30319"
-msgid "Music - All Album Artists"
-msgstr "Music - All Album Artists"
-
-msgctxt "#30321"
-msgid " - Album Artists"
-msgstr "- Album Artists"
 
 msgctxt "#30353"
 msgid " - Frequently Played"
@@ -794,11 +846,11 @@ msgstr "- Recordings"
 
 msgctxt "#30363"
 msgid "Save Password?"
-msgstr "Save Password?"
+msgstr "Save API Key?"
 
 msgctxt "#30364"
 msgid "Do you want to save the password?"
-msgstr "Do you want to save the password?"
+msgstr "Do you want to save the API key?"
 
 msgctxt "#30365"
 msgid "Manual Login"
@@ -806,19 +858,19 @@ msgstr "Manual Login"
 
 msgctxt "#30366"
 msgid "Manually enter user details"
-msgstr "Manually enter user details"
+msgstr "Manually enter profile details"
 
 msgctxt "#30367"
 msgid "Allow fast user switching password saving"
-msgstr "Allow fast saving of the switched user password"
+msgstr "Allow fast profile switching API key saving"
 
 msgctxt "#30368"
 msgid "Clear Password?"
-msgstr "Clear Password?"
+msgstr "Clear API Key?"
 
 msgctxt "#30369"
 msgid "Do you want to clear your saved password?"
-msgstr "Do you want to clear your saved password?"
+msgstr "Do you want to clear your saved API key?"
 
 msgctxt "#30370"
 msgid "Do you want to manually enter a server url?"
@@ -853,8 +905,8 @@ msgid "Sending request"
 msgstr "Sending request"
 
 msgctxt "#30378"
-msgid "Persist user details"
-msgstr "Persist user details"
+msgid "Save Credentials"
+msgstr "Save Credentials"
 
 msgctxt "#30379"
 msgid "External subtitle prompt"
@@ -874,7 +926,7 @@ msgstr "Always"
 
 msgctxt "#30383"
 msgid "System - "
-msgstr "System -"
+msgstr "System - "
 
 msgctxt "#30384"
 msgid "Random movies interval minutes (0 = disabled)"
@@ -882,15 +934,15 @@ msgstr "Random movies interval minutes (0 = disabled)"
 
 msgctxt "#30385"
 msgid "Existing images before delete : "
-msgstr "Existing images before delete:"
+msgstr "Existing images before delete : "
 
 msgctxt "#30386"
-msgid "Unused Jellyfin images : "
-msgstr "Unused Jellyfin images:"
+msgid "Unused Valence images : "
+msgstr "Unused Valence images : "
 
 msgctxt "#30387"
 msgid "Unused images removed : "
-msgstr "Unused images removed:"
+msgstr "Unused images removed : "
 
 msgctxt "#30388"
 msgid "Server details"
@@ -898,7 +950,7 @@ msgstr "Server details"
 
 msgctxt "#30389"
 msgid "User details"
-msgstr "User details"
+msgstr "Could not validate the API key with the Valence server."
 
 msgctxt "#30390"
 msgid "Protocol"
@@ -929,8 +981,8 @@ msgid " - Pages"
 msgstr "- Pages"
 
 msgctxt "#30398"
-msgid "Refresh Jellyfin Metadata"
-msgstr "Refresh Jellyfin Metadata"
+msgid "Refresh Valence Metadata"
+msgstr "Refresh Valence Metadata"
 
 msgctxt "#30399"
 msgid "Hide"
@@ -961,8 +1013,8 @@ msgid " - Show All"
 msgstr "- Show All"
 
 msgctxt "#30406"
-msgid "Jellyfin Libraries"
-msgstr "Jellyfin Libraries"
+msgid "Valence Libraries"
+msgstr "Valence Libraries"
 
 msgctxt "#30407"
 msgid "Global Lists"
@@ -992,10 +1044,6 @@ msgctxt "#30413"
 msgid " - Tags"
 msgstr "- Tags"
 
-msgctxt "#30414"
-msgid " - Favorites"
-msgstr "- Favorites"
-
 msgctxt "#30415"
 msgid " - Favorite Collections"
 msgstr "- Favorite Collections"
@@ -1006,7 +1054,7 @@ msgstr "HTTP timeout seconds"
 
 msgctxt "#30417"
 msgid "You do not have permision to delete this item"
-msgstr "You do not have permision to delete this item"
+msgstr "You do not have permission to delete this item"
 
 msgctxt "#30418"
 msgid "Audio bitrate (Kbits)"
@@ -1026,7 +1074,7 @@ msgstr "Views"
 
 msgctxt "#30422"
 msgid "Sorting"
-msgstr "Sorting"
+msgstr "Sort Methods"
 
 msgctxt "#30423"
 msgid "NotSet"
@@ -1086,7 +1134,7 @@ msgstr "Speed test data size (MB)"
 
 msgctxt "#30437"
 msgid "Playback options"
-msgstr "Playback options"
+msgstr "Cinema"
 
 msgctxt "#30438"
 msgid "Play cinema intros"
@@ -1098,7 +1146,7 @@ msgstr "Show play next episode at time left in seconds"
 
 msgctxt "#30440"
 msgid "Play next"
-msgstr "Play next"
+msgstr "Play Next"
 
 msgctxt "#30441"
 msgid "Use cached widget data"
@@ -1115,7 +1163,6 @@ msgstr "Quick Connect"
 msgctxt "#30444"
 msgid "Login using Quick Connect"
 msgstr "Login using Quick Connect"
-
 
 msgctxt "#30445"
 msgid "Continue Watching"
@@ -1155,7 +1202,7 @@ msgstr "Hide number of items to show on entry title"
 
 msgctxt "#30454"
 msgid " - Totally Unwatched"
-msgstr " - Totally Unwatched"
+msgstr "- Totally Unwatched"
 
 msgctxt "#30455"
 msgid "TV Shows - Random"

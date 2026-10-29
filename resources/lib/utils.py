@@ -306,7 +306,7 @@ def get_art_url(data, art_type, parent=False, index=0, server=None):
     Valence uses /api/media/{id}/artwork/{kind} endpoint
     """
     item_id = data.get("id") or data.get("Id")
-    
+
     if not item_id or not server:
         return ""
 
@@ -321,9 +321,9 @@ def get_art_url(data, art_type, parent=False, index=0, server=None):
         'Thumb': 'thumb',
         'Disc': 'disc',
     }
-    
+
     valence_kind = art_kind_map.get(art_type, 'poster')
-    
+
     # For episodes/seasons, use parent series artwork
     item_type = data.get("Type") or data.get("type")
     if item_type in ["Episode", "Season"] and art_type in ["Primary", "Backdrop", "Banner", "Logo", "Art"]:
@@ -427,7 +427,7 @@ def get_filtered_items_count_text():
         return ""
     else:
         return " (" + settings.getSetting("show_x_filtered_items") + ")"
-     
+
 def seconds_to_ticks(seconds:float):
     return seconds * 10000000
 

@@ -23,6 +23,7 @@ class ItemDetails:
     name = ""
     sort_name = ""
     id = None
+    library_id = None
     etag = None
     path = None
     is_folder = False
@@ -73,6 +74,7 @@ class ItemDetails:
     song_artist = ""
     album_artist = ""
     album_name = ""
+    codec = ""
 
     program_channel_name = None
     program_end_date = None
@@ -100,48 +102,71 @@ def extract_item_info(item, gui_options):
 
     # Basic identifiers
     item_details.id = item.get("id")
+    item_details.library_id = item.get("libraryId") or item.get("library_id")
     item_details.etag = item.get("etag") or item.get("Etag")
-    item_details.name = item.get("title") or item.get("Title") or item.get("Name", "")
+    item_details.name = (item.get("title") or item.get("Title") or
+                         item.get("Name") or item.get("name", ""))
     item_details.sort_name = item.get("sortName") or item.get("SortName") or item_details.name
     item_details.original_title = item_details.name
-    
+
     # Determine item type from Valence structure
     item_type = item.get("type") or item.get("Type")
+    media_context = (gui_options.get("media_type") or "").lower()
     if not item_type:
         # Infer from fields
         if item.get("seasonNumber") is not None and item.get("episodeNumber") is not None:
             item_type = "Episode"
         elif item.get("seasonCount") is not None:
             item_type = "Series"
+        elif (media_context in ("musicartist", "musicartists") or
+              item.get("albumCount") is not None):
+            item_type = "MusicArtist"
+        elif (item.get("trackNumber") is not None or
+              (item.get("durationSeconds") is not None and
+               isinstance(item.get("album"), dict))):
+            item_type = "MusicTrack"
         elif item.get("trackCount") is not None:
             item_type = "MusicAlbum"
         elif item.get("durationSeconds") is not None and item.get("seriesId") is None:
             item_type = "Movie"
         else:
             item_type = "Movie"
-    
+
+    # Normalize Valence's lower-case discriminator spellings before applying
+    # the existing Kodi metadata and folder rules.
+    item_type_aliases = {
+        "episode": "Episode", "season": "Season", "series": "Series",
+        "movie": "Movie", "musicalbum": "MusicAlbum",
+        "musicartist": "MusicArtist", "musictrack": "MusicTrack",
+        "audio": "Audio", "book": "Book",
+    }
+    item_type = item_type_aliases.get(str(item_type).lower(), item_type)
+
     item_details.item_type = item_type
-    
+
     # Check if it's a folder/container
     item_details.is_folder = item_type in ["Series", "Season", "MusicAlbum", "MusicArtist", "CollectionFolder"]
-    
+
     # Type-specific fields
     if item_type == "Episode":
         item_details.episode_number = item.get("episodeNumber") or item.get("episode_number", 0)
         item_details.season_number = item.get("seasonNumber") or item.get("season_number", 0)
         item_details.series_id = item.get("seriesId") or item.get("SeriesId")
         item_details.series_name = item.get("seriesTitle") or item.get("SeriesName", "")
-        
+
         if item_details.season_number != 0:
             item_details.season_sort_number = item_details.season_number
             item_details.episode_sort_number = item_details.episode_number
-            
+
     elif item_type == "Season":
         item_details.season_number = item.get("seasonNumber") or item.get("season_number", 0)
         item_details.series_id = item.get("seriesId") or item.get("SeriesId")
         item_details.total_episodes = item.get("episodeCount") or item.get("episode_count", 0)
         item_details.series_name = item.get("seriesTitle") or item.get("SeriesName", "")
-        
+        # Season folders are synthesized from a Valence show detail response;
+        # keep them visible even though Valence has no separate season ID.
+        item_details.recursive_item_count = item_details.total_episodes
+
     elif item_type == "Series":
         item_details.status = item.get("status") or item.get("Status")
         item_details.total_seasons = item.get("seasonCount") or item.get("season_count", 0)
@@ -149,39 +174,54 @@ def extract_item_info(item, gui_options):
         item_details.unwatched_episodes = item.get("unwatchedCount") or item.get("unwatched_count", 0)
         item_details.watched_episodes = item_details.total_episodes - item_details.unwatched_episodes
         item_details.number_episodes = item_details.total_episodes
-        
+        # Series are folders too; without a child count Kodi's
+        # show_empty_folders setting hides every show returned by /shows.
+        item_details.recursive_item_count = item_details.total_episodes or item_details.total_seasons
+
     elif item_type == "MusicAlbum":
         artist = item.get("artist", {})
         item_details.album_artist = artist.get("name") if isinstance(artist, dict) else artist
         item_details.album_name = item_details.name
         item_details.total_episodes = item.get("trackCount") or item.get("track_count", 0)  # track count
-        
+        item_details.recursive_item_count = item_details.total_episodes or 1
+
     elif item_type == "MusicArtist":
         item_details.total_episodes = item.get("albumCount") or item.get("album_count", 0)
         item_details.total_seasons = item.get("trackCount") or item.get("track_count", 0)
-        
+        # The artists endpoint may return only id/name, without counts. Keep
+        # those artist folders visible because their albums are loaded on open.
+        item_details.recursive_item_count = item_details.total_episodes or 1
+
     elif item_type == "Movie":
         item_details.duration = item.get("durationSeconds", 0)
         item_details.year = item.get("year")
         item_details.premiere_date = item.get("releaseDate") or item.get("release_date", "")
         if item_details.premiere_date and "T" in item_details.premiere_date:
             item_details.premiere_date = item_details.premiere_date.split("T")[0]
-        
+
     elif item_type == "MusicTrack" or item_type == "Audio":
         item_details.track_number = item.get("trackNumber") or item.get("track_number", 0)
         album = item.get("album", {})
         item_details.album_name = album.get("title") if isinstance(album, dict) else album
-        artist = item.get("artist", {})
-        item_details.song_artist = artist.get("name") if isinstance(artist, dict) else artist
+        artists = item.get("artists") or item.get("artist", {})
+        if isinstance(artists, list):
+            artist_names = [a.get("name") if isinstance(a, dict) else str(a)
+                            for a in artists]
+            item_details.song_artist = ", ".join([name for name in artist_names if name])
+        elif isinstance(artists, dict):
+            item_details.song_artist = artists.get("name") or ""
+        else:
+            item_details.song_artist = artists or ""
         item_details.duration = item.get("durationSeconds", 0)
-        
+        item_details.codec = item.get("codec") or item.get("Codec") or ""
+
     elif item_type == "Book":
         item_details.duration = item.get("durationSeconds", 0)
         item_details.year = item.get("year")
-        
+
     elif item_type == "LiveChannel":
         item_details.duration = 0  # Live stream
-        
+
     # Default values
     if not item_details.season_number:
         item_details.season_number = 0
@@ -323,7 +363,7 @@ def extract_item_info(item, gui_options):
     if rating:
         item_details.community_rating = float(rating) if isinstance(rating, (int, float, str)) else 0.0
         item_details.critic_rating = item_details.community_rating
-    
+
     critic_rating = item.get("criticRating") or item.get("CriticRating") or metadata.get("criticRating")
     if critic_rating:
         item_details.critic_rating = float(critic_rating) if isinstance(critic_rating, (int, float, str)) else 0.0
@@ -338,7 +378,7 @@ def extract_item_info(item, gui_options):
     position = item.get("userProgress", {}).get("positionSeconds") if item.get("userProgress") else None
     if position is not None:
         item_details.resume_time = int(position)
-    
+
     # Duration
     if not item_details.duration:
         dur = item.get("durationSeconds") or item.get("Duration") or item.get("RunTimeTicks")
@@ -358,7 +398,7 @@ def extract_item_info(item, gui_options):
 
     # Artwork - Valence provides posterUrl/backdropUrl directly in item data
     item_details.art = get_art(item, gui_options["server"])
-    
+
     # User data flags (from progress or item)
     user_data = item.get("userData") or item.get("UserData") or {}
     if user_data.get("Played") or item.get("isPlayed") or item.get("is_finished"):
@@ -397,16 +437,28 @@ def add_gui_item(url, item_details, display_options, folder=True, default_sort=F
     # Create the URL to pass to the item
     if folder:
         u = sys.argv[0] + "?url=" + quote(url) + mode + "&media_type=" + item_details.item_type
+        if item_details.item_type == "Season":
+            u += "&season_number=" + quote(str(item_details.season_number))
         if item_details.name_format:
             u += '&name_format=' + quote(item_details.name_format)
         if default_sort:
             u += '&sort=none'
     else:
-        u = sys.argv[0] + "?item_id=" + url + "&mode=PLAY"
+        u = (sys.argv[0] + "?item_id=" + quote(url) + "&mode=PLAY&media_type=" +
+             quote(item_details.item_type))
+        if item_details.item_type in ("MusicTrack", "Audio"):
+            u += "&title=" + quote(item_details.name)
+            u += "&artist=" + quote(item_details.song_artist or item_details.album_artist or "")
+            u += "&album=" + quote(item_details.album_name or "")
+            u += "&track_number=" + quote(str(item_details.track_number or 0))
+            u += "&duration=" + quote(str(item_details.duration or 0))
+            if item_details.codec:
+                u += "&codec=" + quote(str(item_details.codec))
 
     list_item_name = item_details.name
     item_type = item_details.item_type.lower()
-    is_video = item_type not in ['musicalbum', 'audio', 'music', 'musicartist', 'musicalbum', 'track', 'song', 'book']
+    is_video = item_type not in ['musicalbum', 'audio', 'music', 'musicartist',
+                                 'musictrack', 'track', 'song', 'book']
 
     # calculate percentage
     capped_percentage = 0
@@ -794,8 +846,27 @@ def get_art(item, server):
     }
 
     item_type = item.get("type") or item.get("Type", "")
+    if not item_type:
+        if item.get("trackNumber") is not None:
+            item_type = "MusicTrack"
+        elif item.get("albumCount") is not None:
+            item_type = "MusicArtist"
+        elif item.get("trackCount") is not None:
+            item_type = "MusicAlbum"
+        elif item.get("episodeNumber") is not None:
+            item_type = "Episode"
+        elif item.get("seasonCount") is not None:
+            item_type = "Series"
+        elif item.get("durationSeconds") is not None:
+            item_type = "Movie"
+    if item_type:
+        item_type = {
+            "musictrack": "MusicTrack", "musicalbum": "MusicAlbum",
+            "musicartist": "MusicArtist", "episode": "Episode",
+            "season": "Season", "series": "Series", "movie": "Movie",
+        }.get(str(item_type).lower(), item_type)
     item_id = item.get("id") or item.get("Id")
-    
+
     if not item_id or not server:
         return art
 
@@ -804,7 +875,7 @@ def get_art(item, server):
     backdrop_url = item.get("backdropUrl") or item.get("backdrop_url")
     logo_url = item.get("logoUrl") or item.get("logo_url")
     thumb_url = item.get("thumbUrl") or item.get("thumb_url")
-    
+
     # For episodes/seasons, get series artwork
     if item_type in ["Episode", "Season"]:
         series_id = item.get("seriesId") or item.get("SeriesId")
@@ -814,7 +885,7 @@ def get_art(item, server):
             art['tvshow.fanart'] = backdrop_url or art['tvshow.fanart']
             art['tvshow.poster'] = poster_url or art['tvshow.poster']
             art['fanart'] = backdrop_url or art['fanart']
-    
+
     # Item-specific artwork from direct URLs
     if item_type in ["Episode", "Season"]:
         # Episode/Season specific
