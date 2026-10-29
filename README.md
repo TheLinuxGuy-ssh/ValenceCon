@@ -11,7 +11,7 @@
 
 ValenceCon connects Kodi to a [Valence](https://www.getvalence.app/) media server. Browse supported libraries, open series and seasons, and play media from the Kodi interface.
 
-<video src="./demo.mp4"></video>
+<video src="https://github.com/TheLinuxGuy-ssh/ValenceCon/raw/refs/heads/master/demo.mp4"></video>
 
 ## Features
 
