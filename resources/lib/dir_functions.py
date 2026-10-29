@@ -103,7 +103,7 @@ def get_content(url, params):
         progress.update(0, translate_string(30113))
 
     # update url for paging
-    start_index = int(url_params.get("startIndex", url_params.get("StartIndex", 0)))
+    start_index = int(url_params.get("offset", url_params.get("startIndex", 0)))
     url_limit = url_params.get("limit", url_params.get("Limit"))
     movie_page_limit = int(settings.getSetting('moviePageSize'))
     show_page_limit = int(settings.getSetting('showPageSize'))
@@ -118,13 +118,13 @@ def get_content(url, params):
                 prev_index = start_index - movie_page_limit
                 if prev_index < 0:
                     prev_index = 0
-                url_prev = update_url_param(url, 'startIndex', str(prev_index))
-                url_next = update_url_param(url, 'startIndex', str(start_index + movie_page_limit))
+                url_prev = update_url_param(url, 'offset', str(prev_index))
+                url_next = update_url_param(url, 'offset', str(start_index + movie_page_limit))
                 log.debug("UPDATING NEXT URL: {0}".format(url_next))
             else:
                 log.debug("ADDING NEXT URL: {0}".format(url))
-                url_next = update_url_param(url, 'startIndex', str(start_index + movie_page_limit))
-                url = update_url_param(url, 'startIndex', str(start_index))
+                url_next = update_url_param(url, 'offset', str(start_index + movie_page_limit))
+                url = update_url_param(url, 'offset', str(start_index))
                 log.debug("ADDING NEXT URL: {0}".format(url_next))
 
         if show_page_limit > 0 and media_type.startswith("tvshow"):
@@ -134,13 +134,13 @@ def get_content(url, params):
                 prev_index = start_index - show_page_limit
                 if prev_index < 0:
                     prev_index = 0
-                url_prev = update_url_param(url, 'startIndex', str(prev_index))
-                url_next = update_url_param(url, 'startIndex', str(start_index + show_page_limit))
+                url_prev = update_url_param(url, 'offset', str(prev_index))
+                url_next = update_url_param(url, 'offset', str(start_index + show_page_limit))
                 log.debug("UPDATING NEXT URL: {0}".format(url_next))
             else:
                 log.debug("ADDING NEXT URL: {0}".format(url))
-                url_next = update_url_param(url, 'startIndex', str(start_index + show_page_limit))
-                url = update_url_param(url, 'startIndex', str(start_index))
+                url_next = update_url_param(url, 'offset', str(start_index + show_page_limit))
+                url = update_url_param(url, 'offset', str(start_index))
                 log.debug("ADDING NEXT URL: {0}".format(url_next))
 
     use_cache = params.get("use_cache", "true") == "true"
@@ -283,6 +283,21 @@ def set_sort(pluginhandle, view_type, default_sort):
 
 
 @timer
+def _filter_items_alpha(item_list, alpha_filter):
+    """Filter a list of ItemDetails by initial letter. '#' matches non A-Z titles"""
+    letter = alpha_filter.upper()
+
+    def matches(name):
+        if not name:
+            return letter == '#'
+        first = name[:1]
+        if letter == '#':
+            return not first.isalpha()
+        return first.upper() == letter
+
+    return [it for it in item_list if matches(getattr(it, 'name', None))]
+
+
 def process_directory(url, progress, params, use_cache_data=False):
     log.debug("== ENTER: processDirectory ==")
 
@@ -315,11 +330,24 @@ def process_directory(url, progress, params, use_cache_data=False):
     item_limit = int(settings.getSetting("show_x_filtered_items"))
     
     # Update URL params for Valence
-    url = url.replace('{server}', '')
-    url = url.replace('{field_filters}', default_filters)
-    url = url.replace('{ItemLimit}', str(item_limit))
+    # normalize per-url template tokens (url may be a single path or a list)
+    def _normalize(u):
+        u = u.replace('{server}', '')
+        u = u.replace('{field_filters}', default_filters)
+        u = u.replace('{ItemLimit}', str(item_limit))
+        return u
+
+    if isinstance(url, (list, tuple)):
+        url = [_normalize(u) for u in url]
+    else:
+        url = _normalize(url)
 
     cache_file, item_list, total_records, cache_thread = data_manager.get_items(url, gui_options, use_cache)
+
+    # optional client-side alpha filter (A-Z menus)
+    alpha_filter = params.get("alpha")
+    if alpha_filter:
+        item_list = _filter_items_alpha(item_list, alpha_filter)
 
     # flatten single season
     flatten_single_season = settings.getSetting("flatten_single_season") == "true"

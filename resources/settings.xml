@@ -3,14 +3,14 @@
 	<category label="30096">
 
 		<setting label="30093" type="lsep"/>
-		<setting label="30105" type="action" action="RunScript(plugin.video.valencecon,0,?mode=DETECT_SERVER)" option="close"/>
+		<setting label="30103" type="action" action="RunScript(plugin.video.valencecon,0,?mode=DETECT_SERVER)" option="close"/>
 		<setting id="server_address" type="text" label="30107" default="" visible="true" enable="true" />
 		<setting id="verify_cert" type="bool" label="30003" default="true" visible="true" enable="true" />
 
 		<setting label="30097" type="lsep"/>
 		<setting type="sep" />
-		<setting label="30106" type="action" action="RunScript(plugin.video.valencecon,0,?mode=CHANGE_PROFILE)" option="close"/>
-		<setting id="profile_name" type="text" label="30095" />
+		<setting label="30104" type="action" action="RunScript(plugin.video.valencecon,0,?mode=CHANGE_PROFILE)" option="close"/>
+		<setting id="profile_name" type="text" label="30106" default="" visible="true" enable="false" />
 		<setting id="api_key" type="text" label="30094" default="" visible="true" enable="true" />
 		<setting id="save_user_to_settings" type="bool" label="30378" default="true" visible="true" enable="true" />
 

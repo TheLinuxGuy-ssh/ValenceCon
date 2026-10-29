@@ -9,13 +9,13 @@
         <provides>video audio</provides>
         <medialibraryscanpath content="movies">library/movies</medialibraryscanpath>
   </extension>
-  <extension point="xbmc.service" library="service.py" start="login"/>
+  <extension point="xbmc.service" library="service.py"/>
   <extension point="xbmc.addon.metadata">
     <platform>all</platform>
     <language>en</language>
     <license>MIT</license>
     <forum>https://github.com/valenceOSS/valence/issues</forum>
-    <website>https://getvalence.app</website>
+    <website>https://www.getvalence.app</website>
     <source>https://github.com/valenceOSS/valence</source>
     <summary lang="en_GB">Browse and play your Valence server media library.</summary>
     <description lang="en_GB">An addon to allow you to browse and playback your Valence (https://getvalence.app) Movie, TV Show, Music, Book and Live TV collections.</description>

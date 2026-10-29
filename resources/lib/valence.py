@@ -14,6 +14,8 @@ log = LazyLogger(__name__)
 
 
 class ValenceAPI:
+    user_id = None
+
     def __init__(self, server=None, api_key=None, profile_id=None):
         self.server = server
         self.api_key = api_key
@@ -45,12 +47,36 @@ class ValenceAPI:
         if self.api_key:
             self.session.headers['X-Api-Key'] = self.api_key
 
+    def reconfigure(self, server=None, api_key=None):
+        """Update the server and api key on the existing session"""
+        if server:
+            self.server = server
+        if api_key:
+            self.api_key = api_key
+        if api_key:
+            self.session.headers['X-Api-Key'] = self.api_key
+        else:
+            self.session.headers.pop('X-Api-Key', None)
+        log.debug("ValenceAPI reconfigured (key present={0})".format(bool(api_key)))
+
     def _request(self, method, path, **kwargs):
         """Make a request to the Valence API"""
+        # Always pick up fresh credentials from settings so key changes
+        # in the settings dialog take effect without a restart
+        try:
+            current_server = self.settings.getSetting('server_address')
+            current_key = self.settings.getSetting('api_key')
+            if current_server and current_server != self.server:
+                self.server = current_server
+            if current_key and current_key != self.api_key:
+                self.api_key = current_key
+                self.session.headers['X-Api-Key'] = current_key
+        except Exception:
+            pass
+
         if not self.server:
-            self.settings = xbmcaddon.Addon()
             self.server = self.settings.getSetting('server_address')
-        
+
         url = '{}/api{}'.format(self.server.rstrip('/'), path)
         
         # Ensure verify_cert is set

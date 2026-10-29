@@ -5,18 +5,17 @@ from __future__ import (
 import hashlib
 import random
 import time
-import datetime
 
 import xbmcaddon
-import xbmcplugin
 import xbmcgui
+import xbmcplugin
 
-from .valence import api
-from .utils import (
-    get_valence_url, get_art_url, get_default_filters
-)
 from .lazylogger import LazyLogger
 from .kodi_utils import HomeWindow
+from .valence import api
+from .utils import (
+    get_art_url, get_default_filters, get_valence_url
+)
 from .dir_functions import process_directory
 from .tracking import timer
 
@@ -26,48 +25,93 @@ background_items = []
 background_current_item = 0
 
 
+def _get_libraries(kinds):
+    """Return libraries whose kind is in kinds (tolerating request errors)"""
+    libraries = api.get_libraries()
+    if not libraries:
+        return []
+    return [l for l in libraries if l.get('kind') in kinds]
+
+
+def _items_urls(libraries, item_limit, extra=None):
+    """Build per-library /libraries/{id}/items URLs (combined route is unsupported)"""
+    base = {'limit': item_limit, 'fields': get_default_filters()}
+    if extra:
+        base.update(extra)
+    return [
+        get_valence_url('/libraries/{}/items'.format(lib.get('id')), base)
+        for lib in libraries
+    ]
+
+
+def _fetch_watched_ids():
+    """Return the set of media ids marked finished on the server"""
+    watched = set()
+    progress_result = api.get('/progress')
+    if isinstance(progress_result, dict):
+        for entry in progress_result.get('progress', []) or []:
+            try:
+                if entry.get('isFinished'):
+                    watched.add(entry.get('mediaId'))
+            except AttributeError:
+                continue
+    return watched
+
+
+def _filter_unwatched(item_dicts, watched_ids):
+    if not watched_ids:
+        return item_dicts
+    return [i for i in item_dicts if i.get('id') not in watched_ids]
+
+
 @timer
 def set_random_movies():
     log.debug("set_random_movies Called")
 
     settings = xbmcaddon.Addon()
-    item_limit = settings.getSetting("show_x_filtered_items")
+    item_limit = int(settings.getSetting("show_x_filtered_items") or 20)
     hide_watched = settings.getSetting("hide_watched") == "true"
 
-    # Get all movie libraries
-    libraries = api.get_libraries()
-    movie_libs = [l for l in libraries if l.get('kind') == 'movies'] if libraries else []
+    movie_libs = _get_libraries(['movies'])
     if not movie_libs:
         return
-    
-    lib_ids = ','.join([l['id'] for l in movie_libs])
 
-    url_params = {}
-    url_params["limit"] = item_limit
-    if hide_watched:
-        url_params["filters"] = "unplayed"
-    url_params["sort"] = "random"
-    url_params["libraryIds"] = lib_ids
+    watched_ids = _fetch_watched_ids() if hide_watched else set()
 
-    url = get_valence_url("/libraries/items", url_params)
+    # pick a random window from each library, then merge
+    random_ids = []
+    for lib in movie_libs:
+        lib_id = lib.get('id')
+        count_url = get_valence_url(
+            '/libraries/{}/items'.format(lib_id), {'limit': 1})
+        count_result = api.get(count_url)
+        total = count_result.get('total', 0) if isinstance(count_result, dict) else 0
+        if not total:
+            continue
 
-    results = api.get(url)
-
-    randon_movies_list = []
-    if results is not None:
-        items = results.get("items", [])
+        window = min(item_limit * 5, total)
+        offset = random.randint(0, max(0, total - window)) if total > window else 0
+        url = get_valence_url('/libraries/{}/items'.format(lib_id), {
+            'limit': window,
+            'offset': offset,
+            'order': 'title',
+        })
+        result = api.get(url)
+        items = result.get('items', []) if isinstance(result, dict) else []
+        items = _filter_unwatched(items, watched_ids)
         for item in items:
-            randon_movies_list.append(item.get("id"))
+            random_ids.append(item.get("id"))
 
-    random.shuffle(randon_movies_list)
-    movies_list_string = ",".join(randon_movies_list)
+    random.shuffle(random_ids)
+    random_ids = random_ids[:item_limit]
+    movies_list_string = ",".join([str(i) for i in random_ids if i])
+
     home_window = HomeWindow()
     m = hashlib.md5()
     m.update(movies_list_string.encode())
     new_widget_hash = m.hexdigest()
 
     log.debug("set_random_movies : {0}".format(movies_list_string))
-    log.debug("set_random_movies : {0}".format(new_widget_hash))
     home_window.set_property("random-movies", movies_list_string)
     home_window.set_property("random-movies-changed", new_widget_hash)
 
@@ -77,42 +121,52 @@ def set_random_tvshows():
     log.debug("set_random_tvshows Called")
 
     settings = xbmcaddon.Addon()
-    item_limit = settings.getSetting("show_x_filtered_items")
+    item_limit = int(settings.getSetting("show_x_filtered_items") or 20)
     hide_watched = settings.getSetting("hide_watched") == "true"
 
-    libraries = api.get_libraries()
-    show_libs = [l for l in libraries if l.get('kind') in ['shows', 'anime']] if libraries else []
+    show_libs = _get_libraries(['shows', 'anime'])
     if not show_libs:
         return
-    
-    lib_ids = ','.join([l['id'] for l in show_libs])
 
-    url_params = {}
-    url_params["limit"] = item_limit
-    if hide_watched:
-        url_params["filters"] = "unplayed"
-    url_params["sort"] = "random"
-    url_params["libraryIds"] = lib_ids
+    watched_ids = _fetch_watched_ids() if hide_watched else set()
 
-    url = get_valence_url("/libraries/shows", url_params)
+    random_ids = []
+    for lib in show_libs:
+        lib_id = lib.get('id')
+        count_url = get_valence_url(
+            '/libraries/{}/shows'.format(lib_id), {'limit': 1})
+        count_result = api.get(count_url)
+        total = 0
+        if isinstance(count_result, dict):
+            total = count_result.get('total', 0)
+            if not total:
+                total = len(count_result.get('shows', []) or [])
+        if not total:
+            continue
 
-    results = api.get(url)
-
-    random_tvshows_list = []
-    if results is not None:
-        items = results.get("shows", [])
+        window = min(item_limit * 5, total)
+        offset = random.randint(0, max(0, total - window)) if total > window else 0
+        url = get_valence_url('/libraries/{}/shows'.format(lib_id), {
+            'limit': window,
+            'offset': offset,
+            'order': 'title',
+        })
+        result = api.get(url)
+        items = result.get('shows', []) if isinstance(result, dict) else []
+        items = _filter_unwatched(items, watched_ids)
         for item in items:
-            random_tvshows_list.append(item.get("id"))
+            random_ids.append(item.get("id"))
 
-    random.shuffle(random_tvshows_list)
-    tvshow_list_string = ",".join(random_tvshows_list)
+    random.shuffle(random_ids)
+    random_ids = random_ids[:item_limit]
+    tvshow_list_string = ",".join([str(i) for i in random_ids if i])
+
     home_window = HomeWindow()
     m = hashlib.md5()
     m.update(tvshow_list_string.encode())
     new_widget_hash = m.hexdigest()
 
     log.debug("set_random_tvshows: {0}".format(tvshow_list_string))
-    log.debug("set_random_tvshows: {0}".format(new_widget_hash))
     home_window.set_property("random-tvshows", tvshow_list_string)
     home_window.set_property("random-tvshows-changed", new_widget_hash)
 
@@ -122,41 +176,48 @@ def set_random_all():
     log.debug("set_random_all Called")
 
     settings = xbmcaddon.Addon()
-    item_limit = settings.getSetting("show_x_filtered_items")
+    item_limit = int(settings.getSetting("show_x_filtered_items") or 20)
     hide_watched = settings.getSetting("hide_watched") == "true"
 
-    libraries = api.get_libraries()
+    libraries = _get_libraries(['movies', 'shows', 'anime'])
     if not libraries:
         return
-    
-    lib_ids = ','.join([l['id'] for l in libraries])
 
-    url_params = {}
-    url_params["limit"] = item_limit
-    if hide_watched:
-        url_params["filters"] = "unplayed"
-    url_params["sort"] = "random"
-    url_params["libraryIds"] = lib_ids
+    watched_ids = _fetch_watched_ids() if hide_watched else set()
 
-    url = get_valence_url("/libraries/items", url_params)
+    random_ids = []
+    for lib in libraries:
+        lib_id = lib.get('id')
+        count_url = get_valence_url(
+            '/libraries/{}/items'.format(lib_id), {'limit': 1})
+        count_result = api.get(count_url)
+        total = count_result.get('total', 0) if isinstance(count_result, dict) else 0
+        if not total:
+            continue
 
-    results = api.get(url)
-
-    random_items = []
-    if results is not None:
-        items = results.get("items", [])
+        window = min(item_limit * 5, total)
+        offset = random.randint(0, max(0, total - window)) if total > window else 0
+        url = get_valence_url('/libraries/{}/items'.format(lib_id), {
+            'limit': window,
+            'offset': offset,
+            'order': 'title',
+        })
+        result = api.get(url)
+        items = result.get('items', []) if isinstance(result, dict) else []
+        items = _filter_unwatched(items, watched_ids)
         for item in items:
-            random_items.append(item.get("id"))
+            random_ids.append(item.get("id"))
 
-    random.shuffle(random_items)
-    item_list_string = ",".join(random_items)
+    random.shuffle(random_ids)
+    random_ids = random_ids[:item_limit]
+    item_list_string = ",".join([str(i) for i in random_ids if i])
+
     home_window = HomeWindow()
     m = hashlib.md5()
     m.update(item_list_string.encode())
     new_widget_hash = m.hexdigest()
 
     log.debug("set_random_all: {0}".format(item_list_string))
-    log.debug("set_random_all: {0}".format(new_widget_hash))
     home_window.set_property("random-all", item_list_string)
     home_window.set_property("random-all-changed", new_widget_hash)
 
@@ -180,28 +241,30 @@ def set_background_image(force=False):
             len(background_items), background_current_item)
         )
 
-        libraries = api.get_libraries()
+        libraries = _get_libraries(['movies', 'shows', 'anime'])
         if not libraries:
             return
-        
-        lib_ids = ','.join([l['id'] for l in libraries])
 
-        url_params = {}
-        url_params["limit"] = 100
-        url_params["sort"] = "random"
-        url_params["libraryIds"] = lib_ids
-
-        url = get_valence_url('/libraries/items', url_params)
-
-        results = api.get(url)
-
-        if results is not None:
-            items = results.get("items", [])
-            background_current_item = 0
-            background_items = []
+        background_items = []
+        for lib in libraries:
+            lib_id = lib.get('id')
+            item_count = lib.get('itemCount') or 100
+            window = min(100, item_count)
+            offset = random.randint(0, max(0, item_count - 100)) if item_count > 100 else 0
+            url = get_valence_url('/libraries/{}/items'.format(lib_id), {
+                'limit': window,
+                'offset': offset,
+                'order': 'title',
+            })
+            result = api.get(url)
+            items = result.get('items', []) if isinstance(result, dict) else []
+            # only items with backdrops make sense as backgrounds
+            items = [
+                i for i in items
+                if i.get('hasBackdrop') or ('backdropUrl' in i and i.get('backdropUrl'))
+            ]
             for item in items:
-                bg_image = get_art_url(
-                    item, "Backdrop", server=server)
+                bg_image = get_art_url(item, "Backdrop", server=server)
                 if bg_image:
                     label = item.get("title") or item.get("Name", "")
                     item_background = {}
@@ -209,11 +272,16 @@ def set_background_image(force=False):
                     item_background["name"] = label
                     background_items.append(item_background)
 
+        random.shuffle(background_items)
+        background_current_item = 0
         log.debug("set_background_image: Loaded {0} more backgrounds".format(
             len(background_items))
         )
 
     if len(background_items) > 0:
+        if background_current_item >= len(background_items):
+            background_current_item = 0
+
         bg_image = background_items[background_current_item].get("image")
         label = background_items[background_current_item].get("name")
         log.debug(
@@ -247,56 +315,32 @@ def check_for_new_content():
         log.debug("Setting New Widget Hash: {0}".format(current_time_stamp))
         return
 
-    # For Valence, check recently added and progress
-    libraries = api.get_libraries()
-    if not libraries:
-        return
-    
-    lib_ids = ','.join([l['id'] for l in libraries])
-
-    # Check latest added
-    url_params = {}
-    url_params["limit"] = 1
-    url_params["sort"] = "addedAt"
-    url_params["sortOrder"] = "desc"
-    url_params["libraryIds"] = lib_ids
-
-    added_url = get_valence_url('/libraries/items', url_params)
-
-    result = api.get(added_url)
-    log.debug("LATEST_ADDED_ITEM: {0}".format(result))
-
+    # latest added item across libraries (per-library routes, order=newest)
     last_added_date = ""
-    if result is not None:
-        items = result.get("items", [])
-        if len(items) > 0:
-            item = items[0]
-            last_added_date = item.get("etag", "") or item.get("addedAt", "")
+    libraries = _get_libraries(['movies', 'shows', 'anime'])
+    for lib in libraries:
+        url = get_valence_url('/libraries/{}/items'.format(lib.get('id')), {
+            'limit': 1,
+            'order': 'newest',
+        })
+        result = api.get(url)
+        if isinstance(result, dict):
+            items = result.get('items', [])
+            if items:
+                added_at = items[0].get("addedAt", "")
+                if added_at > last_added_date:
+                    last_added_date = added_at
 
     log.debug("last_added_date: {0}".format(last_added_date))
 
-    # Check latest played
-    url_params = {}
-    url_params["limit"] = 1
-    url_params["sort"] = "datePlayed"
-    url_params["sortOrder"] = "desc"
-    url_params["libraryIds"] = lib_ids
-
-    played_url = get_valence_url(
-        '/libraries/items', url_params
-    )
-
-    result = api.get(played_url)
-    log.debug("LATEST_PLAYED_ITEM: {0}".format(result))
-
+    # latest played item from the shared progress log
     last_played_date = ""
-    if result is not None:
-        items = result.get("items", [])
-        if len(items) > 0:
-            item = items[0]
-            progress = item.get("userProgress")
-            if progress:
-                last_played_date = progress.get("updatedAt", "")
+    progress_result = api.get('/progress')
+    if isinstance(progress_result, dict):
+        for entry in progress_result.get('progress', []) or []:
+            updated_at = entry.get("updatedAt", "")
+            if updated_at > last_played_date:
+                last_played_date = updated_at
 
     log.debug("last_played_date: {0}".format(last_played_date))
 
@@ -316,8 +360,6 @@ def check_for_new_content():
 @timer
 def get_widget_content_cast(handle, params):
     log.debug("getWigetContentCast Called: {0}".format(params))
-    settings = xbmcaddon.Addon()
-    server = settings.getSetting('server_address')
 
     item_id = params["id"]
     media = api.get_media(item_id)
@@ -386,8 +428,7 @@ def get_widget_content(handle, params):
     log.debug("getWigetContent Called: {0}".format(params))
 
     settings = xbmcaddon.Addon()
-    item_limit = int(settings.getSetting("show_x_filtered_items"))
-    hide_watched = settings.getSetting("hide_watched") == "true"
+    item_limit = int(settings.getSetting("show_x_filtered_items") or 20)
     use_cached_widget_data = settings.getSetting(
         "use_cached_widget_data") == "true"
 
@@ -396,120 +437,129 @@ def get_widget_content(handle, params):
         log.error("getWigetContent type not set")
         return
 
-    libraries = api.get_libraries()
-    if not libraries:
-        return
-    
-    lib_ids = ','.join([l['id'] for l in libraries])
-
     log.debug("widget_type: {0}".format(widget_type))
 
-    url_params = {}
-    url_params["limit"] = item_limit
-    url_params["fields"] = get_default_filters()
-    url_params["libraryIds"] = lib_ids
+    fetch_urls = []
 
     if widget_type == "recent_movies":
         xbmcplugin.setContent(handle, 'movies')
-        url_params["sort"] = "addedAt"
-        url_params["sortOrder"] = "desc"
-        url_params["filters"] = "notfolder"
-        if hide_watched:
-            url_params["filters"] = "unplayed"
-        url_params["kind"] = "movies"
+        fetch_urls = _items_urls(_get_libraries(['movies']), item_limit,
+                                 {'order': 'newest'})
 
     elif widget_type == "inprogress_movies":
         xbmcplugin.setContent(handle, 'movies')
-        url_params["sort"] = "datePlayed"
-        url_params["sortOrder"] = "desc"
-        url_params["filters"] = "resumable"
-        url_params["kind"] = "movies"
+        inprogress_ids = _get_inprogress_ids()
+        if not inprogress_ids:
+            xbmcplugin.addDirectoryItems(handle, [])
+            xbmcplugin.endOfDirectory(handle, cacheToDisc=False)
+            return
+        for lib in _get_libraries(['movies']):
+            fetch_urls.append(get_valence_url(
+                '/libraries/{}/items'.format(lib.get('id')),
+                {'limit': item_limit, 'fields': get_default_filters(),
+                 'ids': ','.join(inprogress_ids)}
+            ))
 
     elif widget_type == "random_movies":
         home_window = HomeWindow()
         xbmcplugin.setContent(handle, 'movies')
-        url_params["ids"] = home_window.get_property("random-movies")
+        id_list = home_window.get_property("random-movies")
+        for lib in _get_libraries(['movies']):
+            fetch_urls.append(get_valence_url(
+                '/libraries/{}/items'.format(lib.get('id')),
+                {'fields': get_default_filters(),
+                 'ids': id_list}
+            ))
 
     elif widget_type == "random_tvshows":
         home_window = HomeWindow()
         xbmcplugin.setContent(handle, 'tvshows')
-        url_params["ids"] = home_window.get_property("random-tvshows")
+        id_list = home_window.get_property("random-tvshows")
+        for lib in _get_libraries(['shows', 'anime']):
+            fetch_urls.append(get_valence_url(
+                '/libraries/{}/items'.format(lib.get('id')),
+                {'fields': get_default_filters(),
+                 'ids': id_list}
+            ))
+
+    elif widget_type == "random_all":
+        home_window = HomeWindow()
+        xbmcplugin.setContent(handle, 'movies')
+        id_list = home_window.get_property("random-all")
+        for lib in _get_libraries(['movies', 'shows', 'anime']):
+            fetch_urls.append(get_valence_url(
+                '/libraries/{}/items'.format(lib.get('id')),
+                {'fields': get_default_filters(),
+                 'ids': id_list}
+            ))
 
     elif widget_type == "recent_tvshows":
         xbmcplugin.setContent(handle, 'episodes')
-        url_params["sort"] = "addedAt"
-        url_params["sortOrder"] = "desc"
-        url_params["filters"] = "notfolder"
-        if hide_watched:
-            url_params["filters"] = "unplayed"
-        url_params["kind"] = "shows"
-        url_params["type"] = "episode"
+        fetch_urls = _items_urls(_get_libraries(['shows', 'anime']), item_limit,
+                                 {'order': 'newest', 'type': 'episode'})
 
     elif widget_type == "recent_episodes":
         xbmcplugin.setContent(handle, 'episodes')
-        url_params["sort"] = "addedAt"
-        url_params["sortOrder"] = "desc"
-        url_params["filters"] = "notfolder"
-        if hide_watched:
-            url_params["filters"] = "unplayed"
-        url_params["type"] = "episode"
-        url_params["kind"] = "shows"
+        fetch_urls = _items_urls(_get_libraries(['shows', 'anime']), item_limit,
+                                 {'order': 'newest', 'type': 'episode'})
 
     elif widget_type == "inprogress_episodes":
         xbmcplugin.setContent(handle, 'episodes')
-        url_params["sort"] = "datePlayed"
-        url_params["sortOrder"] = "desc"
-        url_params["filters"] = "resumable"
-        url_params["type"] = "episode"
-        url_params["kind"] = "shows"
+        inprogress_ids = _get_inprogress_ids()
+        if not inprogress_ids:
+            xbmcplugin.addDirectoryItems(handle, [])
+            xbmcplugin.endOfDirectory(handle, cacheToDisc=False)
+            return
+        for lib in _get_libraries(['shows', 'anime']):
+            fetch_urls.append(get_valence_url(
+                '/libraries/{}/items'.format(lib.get('id')),
+                {'limit': item_limit, 'fields': get_default_filters(),
+                 'type': 'episode', 'ids': ','.join(inprogress_ids)}
+            ))
 
     elif widget_type == "nextup_episodes":
         xbmcplugin.setContent(handle, 'episodes')
         # Use /api/up-next endpoint
-        url = api.server + "/api/up-next"
+        next_url = '/up-next'
         params["name_format"] = "Episode|episode_name_format"
-        
+
         list_items, detected_type, total_records = process_directory(
-            url, None, params, use_cached_widget_data)
-        
+            next_url, None, params, use_cached_widget_data)
+
         xbmcplugin.addDirectoryItems(handle, list_items)
         xbmcplugin.endOfDirectory(handle, cacheToDisc=False)
         return
 
     elif widget_type == "movie_recommendations":
-        # Valence doesn't have recommendations endpoint yet
-        xbmcgui.Dialog().ok("ValenceCon", "Movie recommendations not available for Valence yet")
-        return
-
-    elif widget_type == "random_all":
-        home_window = HomeWindow()
+        # No recommendations endpoint on Valence 1.7; fall back to newest movies
         xbmcplugin.setContent(handle, 'movies')
-        url_params["ids"] = home_window.get_property("random-all")
+        fetch_urls = _items_urls(_get_libraries(['movies']), item_limit,
+                                 {'order': 'newest'})
 
     elif widget_type == "recent_all":
         xbmcplugin.setContent(handle, 'movies')
-        url_params["sort"] = "addedAt"
-        url_params["sortOrder"] = "desc"
-        url_params["filters"] = "notfolder"
-        if hide_watched:
-            url_params["filters"] = "unplayed"
-        url_params["kind"] = "movies,shows"
-        url_params["type"] = "movie,episode"
+        movie_urls = _items_urls(_get_libraries(['movies']), item_limit,
+                                 {'order': 'newest'})
+        episode_urls = _items_urls(_get_libraries(['shows', 'anime']),
+                                   item_limit,
+                                   {'order': 'newest', 'type': 'episode'})
+        fetch_urls = movie_urls + episode_urls
 
     elif widget_type == "favorites_all":
         xbmcplugin.setContent(handle, 'movies')
-        url_params["filters"] = "favorite"
-        url_params["sort"] = "name"
-        url_params["sortOrder"] = "asc"
+        fetch_urls = ['/favourites']
 
-    items_url = get_valence_url('/libraries/items', url_params)
+    else:
+        log.error("unknown widget type: {0}".format(widget_type))
+        xbmcplugin.endOfDirectory(handle, cacheToDisc=False)
+        return
 
-    if (url_params.get('type', '') == 'episode' or
-            params.get('type', '') == 'nextup_episodes'):
+    if (params.get("type") in ("recent_tvshows", "recent_episodes",
+                              "inprogress_episodes", "nextup_episodes")):
         params["name_format"] = "Episode|episode_name_format"
 
     list_items, detected_type, total_records = process_directory(
-        items_url, None, params, use_cached_widget_data)
+        fetch_urls, None, params, use_cached_widget_data)
 
     if detected_type is not None:
         # if the media type is not set then try to use the detected type
@@ -530,3 +580,17 @@ def get_widget_content(handle, params):
 
     xbmcplugin.addDirectoryItems(handle, list_items)
     xbmcplugin.endOfDirectory(handle, cacheToDisc=False)
+
+
+def _get_inprogress_ids():
+    """Media ids with a resume point that are not finished, newest first"""
+    ids = []
+    progress_result = api.get('/progress')
+    if isinstance(progress_result, dict):
+        entries = [
+            e for e in (progress_result.get('progress') or [])
+            if not e.get('isFinished') and (e.get('positionSeconds') or 0) > 0
+        ]
+        entries.sort(key=lambda e: e.get('updatedAt', ''), reverse=True)
+        ids = [e.get('mediaId') for e in entries]
+    return ids

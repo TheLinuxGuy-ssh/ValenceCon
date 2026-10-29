@@ -64,7 +64,7 @@ def play_all_files(items, play_items=True):
         sources = playback_info.get('MediaSources')
 
         selected_media_source = sources[0]
-        source_id = selected_media_source.get("Id")
+        source_id = selected_media_source.get("id") or selected_media_source.get("Id")
 
         playurl, playback_type, listitem_props = get_play_url(selected_media_source, play_session_id)
         log.info("Play URL: {0} PlaybackType: {1} ListItem Properties: {2}".format(playurl, playback_type, listitem_props))
@@ -161,7 +161,7 @@ def add_to_playlist(play_info):
     sources = playback_info.get('MediaSources')
 
     selected_media_source = sources[0]
-    source_id = selected_media_source.get("Id")
+    source_id = selected_media_source.get("id") or selected_media_source.get("Id")
 
     playurl, playback_type, listitem_props = get_play_url(selected_media_source, play_session_id)
     log.info("Play URL: {0} PlaybackType: {1} ListItem Properties: {2}".format(playurl, playback_type, listitem_props))
@@ -317,10 +317,10 @@ def play_file(play_info):
         channel_id = media.get("ChannelId")
         channel = api.get_media(channel_id)
         if channel:
-            item_id = channel["Id"]
+            item_id = channel.get("id") or channel.get("Id")
             media = channel
     elif media.get('Type') == "LiveChannel":
-        channel_id = media.get("Id")
+        channel_id = media.get("id") or media.get("Id")
     elif media.get("Type") == "Photo":
         play_url = "%s/Items/%s/Images/Primary"
         play_url = play_url % (server, item_id)
@@ -380,7 +380,7 @@ def play_file(play_info):
         log.debug("Play Aborted, MediaSource was None")
         return
 
-    source_id = selected_media_source.get("Id")
+    source_id = selected_media_source.get("id") or selected_media_source.get("Id")
     seek_time = 0
     auto_resume = int(auto_resume)
 
@@ -389,16 +389,16 @@ def play_file(play_info):
         seek_time = (auto_resume / 1000) / 10000
 
     elif force_auto_resume:
-        user_data = media.get("UserData")
-        reasonable_ticks = int(user_data.get("PlaybackPositionTicks")) / 1000
-        seek_time = reasonable_ticks / 10000
+        user_data = media.get("userData") or media.get("UserData") or _get_server_progress(item_id)
+        position_seconds = user_data.get("positionSeconds") or 0
+        seek_time = float(position_seconds or 0)
 
     else:
-        user_data = media.get("UserData")
-        if user_data.get("PlaybackPositionTicks") != 0:
+        user_data = media.get("userData") or media.get("UserData") or _get_server_progress(item_id)
+        if (user_data.get("positionSeconds") or 0) != 0:
 
-            reasonable_ticks = int(user_data.get("PlaybackPositionTicks")) / 1000
-            seek_time = round(reasonable_ticks / 10000, 0)
+            position_seconds = user_data.get("positionSeconds") or 0
+            seek_time = round(float(position_seconds), 0)
             display_time = (datetime.datetime(1,1,1) + datetime.timedelta(seconds=seek_time)).strftime('%H:%M:%S')
 
             resume_dialog = ResumeDialog("ResumeDialog.xml", addon_path, "default", "720p")
@@ -819,7 +819,7 @@ def audio_subs_pref(url, list_item, media_source, item_id, audio_stream_index, s
     playurlprefs = ""
     default_audio = media_source.get('DefaultAudioStreamIndex', 1)
     default_sub = media_source.get('DefaultSubtitleStreamIndex', "")
-    source_id = media_source["Id"]
+    source_id = media_source.get("id") or media_source.get("Id")
 
     media_streams = media_source['MediaStreams']
 
@@ -1090,7 +1090,7 @@ def prompt_for_stop_actions(item_id, data):
 
         else:
             play_info = {
-                "item_id": next_episode.get("Id"),
+                "item_id": next_episode.get("id") or next_episode.get("Id"),
                 "auto_resume": "-1",
                 "force_transcode": False
             }
@@ -1136,13 +1136,28 @@ def stop_all_playback():
             if data.get('playback_type') == 'Transcode':
                 device_id = get_device_id()
                 play_session_id = data.get("play_session_id")
-                url = "/Videos/ActiveEncodings?DeviceId=%s&playSessionId=%s" % (device_id, play_session_id)
+                url = "/playback/session/{}".format(play_session_id)
                 api.delete(url)
 
     for entry in clear_entries:
         del played_information[entry]
 
     home_window.set_property('played_information', json.dumps(played_information))
+
+
+def _get_server_progress(item_id):
+    """Resume data for an item from the shared progress log (GET /api/progress)"""
+    result = api.get('/progress')
+    if isinstance(result, dict):
+        for entry in result.get('progress', []) or []:
+            if entry.get('mediaId') == item_id:
+                position = entry.get('positionSeconds') or 0
+                return {
+                    'positionSeconds': int(round(position)),
+                    'isFinished': bool(entry.get('isFinished')),
+                    'updatedAt': entry.get('updatedAt', ''),
+                }
+    return {}
 
 
 def get_playing_data():
@@ -1199,13 +1214,19 @@ def get_playing_data():
 def get_item_playback_info(item_id, force_transcode=False):
     """Get playback info for an item by starting a playback session"""
     # Build device profile for Valence
+    # Valence requires maxAudioChannels to be a positive integer,
+    # the "no limit" setting (0) maps to a safe 8 channels
+    audio_channels = int(settings.getSetting("audio_max_channels"))
+    if audio_channels <= 0:
+        audio_channels = 8
+
     device_profile = {
         "schemaVersion": 1,
         "id": get_device_id(),
         "name": "Kodi ValenceCon",
         "maxWidth": int(settings.getSetting("playback_max_width")),
         "maxHeight": int(settings.getSetting("playback_max_width")) * 9 // 16,
-        "maxAudioChannels": int(settings.getSetting("audio_max_channels")),
+        "maxAudioChannels": audio_channels,
         "supportedVideoRanges": ["SDR", "HDR10", "DolbyVision"],
         "supportedSubtitleFormats": ["srt", "webvtt", "ass", "vobsub", "pgs"],
         "directPlayProfiles": [
@@ -1332,6 +1353,134 @@ def get_strm_details(media_source):
 
     log.debug("Playback URL: {0} ListItem Properties: {1}".format(playurl, listitem_props))
     return playurl, listitem_props
+
+
+def report_stopped_playback(data):
+    """Send the final progress to the Valence server when playback stops"""
+    current_position = data.get("current_position", 0)
+    duration = data.get("duration", 0)
+    item_id = data.get("item_id")
+
+    if item_id is not None and current_position >= 0:
+        log.debug("Playback Stopped at: {0}".format(current_position))
+        try:
+            api.report_progress(item_id, current_position, duration, False)
+        except Exception as error:
+            log.error("report_stopped_playback failed: {0}".format(error))
+
+
+def get_media_segments(item_id):
+    """Get media segments (intro/credits) for an item from the Valence server"""
+    result = api.get('/media/{}/segments'.format(item_id))
+    if not result or not isinstance(result, dict):
+        log.debug("GetMediaSegments : Media segments could not be retrieved")
+        return None
+    segments = result.get("segments", [])
+    if not segments:
+        log.debug("GetMediaSegments : no segments for item")
+    return segments
+
+
+class PlaybackService(xbmc.Monitor):
+    """Handles Kodi notifications for playback actions and screensaver events"""
+
+    background_image_cache_thread = None
+
+    def __init__(self, monitor):
+        self.monitor = monitor
+
+    def onNotification(self, sender, method, data):
+        if method == 'GUI.OnScreensaverActivated':
+            self.screensaver_activated()
+            return
+        elif method == 'GUI.OnScreensaverDeactivated':
+            self.screensaver_deactivated()
+            return
+        elif method == 'System.OnQuit':
+            home_window = HomeWindow()
+            home_window.set_property('exit', 'True')
+            return
+
+        if sender.lower() not in (
+            'plugin.video.valencecon', 'xbmc', 'upnextprovider.signal'
+        ):
+            return
+
+        signal = method.split('.', 1)[-1]
+        if signal not in (
+            "valencecon_play_action", "valencecon_play_youtube_trailer_action",
+            "set_view", "plugin.video.valencecon_play_action"
+        ):
+            return
+
+        try:
+            data_json = json.loads(data)
+        except (ValueError, TypeError):
+            log.debug("PlaybackService:onNotification bad data: {0}".format(data))
+            return
+
+        if sender.lower() == "upnextprovider.signal":
+            try:
+                play_info = json.loads(binascii.unhexlify(data_json[0]))
+            except Exception as error:
+                log.error("upnext data parse failed: {0}".format(error))
+                return
+        else:
+            play_info = data_json[0]
+
+        log.debug("PlaybackService:onNotification:{0}".format(play_info))
+
+        if signal in (
+            "valencecon_play_action", "plugin.video.valencecon_play_action"
+        ):
+            play_file(play_info)
+        elif signal == "valencecon_play_youtube_trailer_action":
+            trailer_link = play_info.get("url")
+            if trailer_link:
+                xbmc.executebuiltin(trailer_link)
+        elif signal == "set_view":
+            view_id = play_info.get("view_id")
+            log.debug("Setting view id: {0}".format(view_id))
+            xbmc.executebuiltin("Container.SetViewMode(%s)" % int(view_id))
+
+    def screensaver_activated(self):
+        log.debug("Screen Saver Activated")
+
+        home_screen = HomeWindow()
+        home_screen.clear_property("skip_select_user")
+
+        stop_playback = settings.getSetting("stopPlaybackOnScreensaver") == 'true'
+
+        if stop_playback:
+            player = xbmc.Player()
+            if player.isPlayingVideo():
+                log.debug("Screen Saver Activated : isPlayingVideo() = true")
+                play_data = get_playing_data()
+                if play_data:
+                    log.debug("Screen Saver Activated : ValenceCon item so stop it")
+                    player.stop()
+
+        clear_old_cache_data()
+
+        cache_images = settings.getSetting('cacheImagesOnScreenSaver') == 'true'
+        if cache_images:
+            self.background_image_cache_thread = CacheArtwork()
+            self.background_image_cache_thread.start()
+
+    def screensaver_deactivated(self):
+        log.debug("Screen Saver Deactivated")
+
+        if self.background_image_cache_thread:
+            self.background_image_cache_thread.stop_activity()
+            self.background_image_cache_thread = None
+
+        show_change_profile = settings.getSetting('changeProfileOnScreenSaver') == 'true'
+        if show_change_profile:
+            home_screen = HomeWindow()
+            skip_select_user = home_screen.get_property("skip_select_user")
+            if skip_select_user is not None and skip_select_user == "true":
+                return
+            xbmc.executebuiltin("RunScript(plugin.video.valencecon,0,?mode=CHANGE_PROFILE)")
 
 
 class Service(xbmc.Player):

@@ -153,13 +153,6 @@ def display_movies_or_shows_type(library, view_name, item_limit):
         # Alpha Picker
         path = "plugin://plugin.video.valencecon/?mode=MOVIE_ALPHA&library_id={}".format(library_id)
         add_menu_directory_item('{}{}'.format(view_label, translate_string(30404)), path)
-        
-        # Years/Decades
-        path = "plugin://plugin.video.valencecon/?mode=SHOW_ADDON_MENU&type=show_movie_years&library_id={}".format(library_id)
-        add_menu_directory_item('{}{}'.format(view_label, translate_string(30411)), path)
-        
-        path = "plugin://plugin.video.valencecon/?mode=SHOW_ADDON_MENU&type=show_movie_years&group=true&library_id={}".format(library_id)
-        add_menu_directory_item('{}{}'.format(view_label, translate_string(30412)), path)
     else:
         # Shows/Anime
         # Favorite Shows
@@ -248,8 +241,8 @@ def display_movies_or_shows_type(library, view_name, item_limit):
 def display_music_type(menu_params, view):
     handle = int(sys.argv[1])
     library = view if view else menu_params
-    view_name = library.get("Name", translate_string(30320))
-    library_id = library.get("Id")
+    view_name = library.get("name") or translate_string(30320)
+    library_id = library.get("id")
 
     item_limit = settings.getSetting("show_x_filtered_items")
 
@@ -304,8 +297,8 @@ def display_music_type(menu_params, view):
 def display_books_type(menu_params, view):
     handle = int(sys.argv[1])
     library = view if view else menu_params
-    view_name = library.get("Name", translate_string(30320))
-    library_id = library.get("Id")
+    view_name = library.get("name") or translate_string(30320)
+    library_id = library.get("id")
 
     item_limit = settings.getSetting("show_x_filtered_items")
 
@@ -332,7 +325,7 @@ def display_livetv_type(menu_params, view):
 
     library = view if view else menu_params
     view_name = library.get("Name", "Live TV")
-    library_id = library.get("Id")
+    library_id = library.get("id")
 
     # Channels
     params = {
@@ -415,127 +408,53 @@ def show_global_types(params):
 
 
 def display_global_movies(params):
-    """Display global movie lists across all movie libraries"""
+    """Display movie sections per movie library (per-library API routes)"""
     handle = int(sys.argv[1])
     item_limit = settings.getSetting("show_x_filtered_items")
     hide_watched = settings.getSetting("hide_watched") == "true"
-    group_movies = settings.getSetting('group_movies') == "true"
 
-    # Get all movie libraries
-    libraries = api.get_libraries()
-    movie_libs = [l for l in libraries if l.get('kind') == 'movies'] if libraries else []
+    libraries = api.get_libraries() or []
+    movie_libs = [l for l in libraries if l.get('kind') == 'movies']
 
     if not movie_libs:
         xbmcplugin.endOfDirectory(handle)
         return
 
-    # Build combined URL for all movie libraries
-    lib_ids = ','.join([l['id'] for l in movie_libs])
-    
-    base_params = {
-        'limit': item_limit,
-        'fields': get_default_filters(),
-        'libraryIds': lib_ids,
-    }
-
-    # All Movies
-    path = get_valence_url('/libraries/items', base_params)
-    
-    if settings.getSetting("interface_mode") == "1":
-        get_content(path, {"media_type": "movies"})
+    if len(movie_libs) > 1:
+        # Offer each library explicitly since Valence queries are per-library
+        for lib in movie_libs:
+            art = get_art(item=lib, server=settings.getSetting('server_address'))
+            path = "plugin://plugin.video.valencecon/?mode=SHOW_ADDON_MENU&type=library_item&library_id=" + lib.get("id")
+            add_menu_directory_item(lib.get('name'), path, art=art)
+        xbmcplugin.endOfDirectory(handle)
         return
 
-    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=movies"
-    add_menu_directory_item(translate_string(30256) + translate_string(30405), url)
-
-    # Favorite Movies
-    fav_params = base_params.copy()
-    fav_params['filters'] = 'favorite'
-    path = get_valence_url('/libraries/items', fav_params)
-    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=movies"
-    add_menu_directory_item(translate_string(30414), url)
-
-    # Unwatched Movies
-    unwatched_params = base_params.copy()
-    unwatched_params['filters'] = 'unplayed'
-    path = get_valence_url('/libraries/items', unwatched_params)
-    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=movies"
-    add_menu_directory_item(translate_string(30285), url)
-
-    # Recently Added
-    recent_params = base_params.copy()
-    if hide_watched:
-        recent_params['filters'] = 'unplayed'
-    recent_params['sort'] = 'addedAt'
-    recent_params['sortOrder'] = 'desc'
-    path = get_valence_url('/libraries/items', recent_params)
-    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=movies&sort=none"
-    add_menu_directory_item(translate_string(30268) + get_filtered_items_count_text(), url)
-
-    # Genres
-    path = "plugin://plugin.video.valencecon/?mode=GENRES&kind=movies"
-    add_menu_directory_item(translate_string(30325), path)
-
-    # Alpha Picker
-    path = "plugin://plugin.video.valencecon/?mode=MOVIE_ALPHA"
-    add_menu_directory_item(translate_string(30404), path)
-
-    xbmcplugin.endOfDirectory(handle)
+    library = movie_libs[0]
+    display_library_view({"library_id": library.get("id")})
 
 
 def display_global_tvshows(params):
-    """Display global TV show lists across all show libraries"""
+    """Display TV show sections per show library (per-library API routes)"""
     handle = int(sys.argv[1])
     item_limit = settings.getSetting("show_x_filtered_items")
 
-    libraries = api.get_libraries()
-    show_libs = [l for l in libraries if l.get('kind') in ['shows', 'anime']] if libraries else []
+    libraries = api.get_libraries() or []
+    show_libs = [l for l in libraries if l.get('kind') in ['shows', 'anime']]
 
     if not show_libs:
         xbmcplugin.endOfDirectory(handle)
         return
 
-    lib_ids = ','.join([l['id'] for l in show_libs])
-    
-    base_params = {
-        'limit': item_limit,
-        'fields': get_default_filters(),
-        'libraryIds': lib_ids,
-    }
-
-    # All TV Shows
-    path = get_valence_url('/libraries/shows', base_params)
-    
-    if settings.getSetting("interface_mode") == "1":
-        get_content(path, {"media_type": "tvshows"})
+    if len(show_libs) > 1:
+        for lib in show_libs:
+            art = get_art(item=lib, server=settings.getSetting('server_address'))
+            path = "plugin://plugin.video.valencecon/?mode=SHOW_ADDON_MENU&type=library_item&library_id=" + lib.get("id")
+            add_menu_directory_item(lib.get('name'), path, art=art)
+        xbmcplugin.endOfDirectory(handle)
         return
 
-    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=tvshows"
-    add_menu_directory_item(translate_string(30261) + translate_string(30405), url)
-
-    # Next Up Episodes
-    next_up_params = {
-        'limit': item_limit,
-        'type': 'episode',
-        'libraryIds': lib_ids,
-        'sort': 'datePlayed',
-        'sortOrder': 'desc',
-        'fields': get_default_filters(),
-    }
-    path = get_valence_url('/libraries/items', next_up_params)
-    url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=Episodes&sort=none"
-    url += "&name_format=" + quote('Episode|episode_name_format')
-    add_menu_directory_item(translate_string(30278) + get_filtered_items_count_text(), url)
-
-    # Genres
-    path = "plugin://plugin.video.valencecon/?mode=GENRES&kind=shows"
-    add_menu_directory_item(translate_string(30325), path)
-
-    # Alpha picker
-    path = "plugin://plugin.video.valencecon/?mode=TVSHOW_ALPHA"
-    add_menu_directory_item(translate_string(30404), path)
-
-    xbmcplugin.endOfDirectory(handle)
+    library = show_libs[0]
+    display_library_view({"library_id": library.get("id")})
 
 
 def display_addon_menu(params):
@@ -570,11 +489,11 @@ def display_library_views(params):
 
     for library in libraries:
         library_kind = library.get('kind', 'mixed')
-        view_name = library.get("Name")
+        view_name = library.get("name") or library.get("Name")
         art = get_art(item=library, server=server)
         art['landscape'] = get_art_url(library, "Primary", server=server)
 
-        plugin_path = "plugin://plugin.video.valencecon/?mode=SHOW_ADDON_MENU&type=library_item&library_id=" + library.get("Id")
+        plugin_path = "plugin://plugin.video.valencecon/?mode=SHOW_ADDON_MENU&type=library_item&library_id=" + library.get("id")
 
         add_menu_directory_item(view_name, plugin_path, art=art)
 
@@ -594,7 +513,7 @@ def display_library_view(params):
         return
 
     library_kind = library.get('kind', 'mixed')
-    view_name = library.get("Name")
+    view_name = library.get("name") or library.get("Name")
     item_limit = settings.getSetting("show_x_filtered_items")
 
     if library_kind in ['movies', 'shows', 'anime']:
@@ -654,60 +573,48 @@ def show_search():
     xbmcplugin.endOfDirectory(int(sys.argv[1]))
 
 
-# Placeholder functions for compatibility - will be implemented in Valence style
 def show_movie_years(menu_params):
-    """Show movie years - uses library-facets"""
-    library_id = menu_params.get("library_id")
-    log.debug("show_movie_years for library: {}".format(library_id))
-    # For now, redirect to genres or use decades from facets
-    facets = api.get_library_facets()
-    decades = facets.get('decades', []) if facets else []
-    
+    """Deprecated: Valence 1.7 has no year filter; keep menu mapping safe"""
     handle = int(sys.argv[1])
-    xbmcplugin.setContent(handle, 'years')
-    
-    params = {
-        'fields': get_default_filters(),
-        'limit': settings.getSetting("show_x_filtered_items"),
-    }
-    if library_id:
-        params['libraryIds'] = library_id
-
-    for decade in decades:
-        decade_name = str(decade) + "s"
-        decade_params = params.copy()
-        decade_params['decade'] = decade
-        path = get_valence_url('/libraries/items', decade_params)
-        url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=movies"
-        add_menu_directory_item(decade_name, url)
-
+    xbmcplugin.setContent(handle, 'files')
+    f_year_tags = translate_string(30411)
+    add_menu_directory_item(f_year_tags,
+                            "plugin://plugin.video.valencecon/?mode=GET_CONTENT&nocontent=1")
     xbmcplugin.endOfDirectory(handle)
 
 
 def show_movie_tags(menu_params):
-    """Show movie tags/genres - uses library-facets"""
+    """Show movie genre menus based on library facets (per-library routes)"""
     library_id = menu_params.get("library_id")
     log.debug("show_movie_tags for library: {}".format(library_id))
-    
+
     facets = api.get_library_facets()
     genres = facets.get('genres', []) if facets else []
-    
+
     handle = int(sys.argv[1])
     xbmcplugin.setContent(handle, 'genres')
-    
+
+    libraries = _libraries_for_kind(['movies'])
+    if not libraries:
+        xbmcplugin.endOfDirectory(handle)
+        return
+
+    if library_id:
+        libraries = [l for l in libraries if l.get('id') == library_id] or libraries[:1]
+
     params = {
         'fields': get_default_filters(),
         'limit': settings.getSetting("show_x_filtered_items"),
     }
-    if library_id:
-        params['libraryIds'] = library_id
 
     for genre in sorted(genres):
-        genre_params = params.copy()
-        genre_params['genre'] = genre
-        path = get_valence_url('/libraries/items', genre_params)
-        url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=movies"
-        add_menu_directory_item(genre, url)
+        for library in libraries:
+            lib_params = params.copy()
+            lib_params['genres'] = quote(genre)
+            path = get_valence_url('/libraries/{}/items'.format(library.get('id')), lib_params)
+            url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=movies"
+            title = genre if len(libraries) == 1 else "{} ({})".format(genre, library.get('name') or '')
+            add_menu_directory_item(title, url)
 
     xbmcplugin.endOfDirectory(handle)
 
@@ -736,8 +643,8 @@ def set_library_window_values(force=False):
     for library in libraries:
         library_kind = library.get('kind', 'mixed')
         if library_kind in ["movies", "shows", "anime", "music", "books", "livetv"]:
-            name = library.get("Name")
-            library_id = library.get("Id")
+            name = library.get("name") or library.get("Name")
+            library_id = library.get("id")
 
             prop_name = "view_item.%i.name" % index
             home_window.set_property(prop_name, name)
@@ -759,3 +666,200 @@ def set_library_window_values(force=False):
             index += 1
             if index >= 20:
                 break
+
+def _libraries_for_kind(kinds):
+    """Return libraries whose kind is in kinds, tolerating failed requests"""
+    libraries = api.get_libraries()
+    if not libraries:
+        return []
+    return [l for l in libraries if l.get('kind') in kinds]
+
+
+def _library_finder_url(library_id):
+    """GET_CONTENT URL listing all items of a library with client-side alpha filter"""
+    params = {
+        'limit': 500,
+        'sort': 'title',
+        'fields': get_default_filters(),
+    }
+    path = get_valence_url('/libraries/{}/items'.format(library_id), params)
+    return path
+
+
+def show_movie_alpha_list(menu_params):
+    """Movies A-Z: per-letter GET_CONTENT URLs with client-side alpha filtering"""
+    log.debug("== ENTER: showMovieAlphaList() ==")
+    handle = int(sys.argv[1])
+    xbmcplugin.setContent(handle, 'movies')
+
+    libraries = _libraries_for_kind(['movies'])
+    if not libraries:
+        xbmcplugin.endOfDirectory(handle)
+        return
+
+    library_id = menu_params.get('library_id')
+    if library_id:
+        libraries = [l for l in libraries if l.get('id') == library_id] or libraries[:1]
+
+    library = libraries[0]
+    base_path = _library_finder_url(library.get('id'))
+
+    for alpha_name in '#' + string.ascii_uppercase:
+        url = (sys.argv[0] + "?url=" + quote(base_path) +
+               "&mode=GET_CONTENT&media_type=movies&alpha=" + alpha_name)
+        log.debug("addMenuDirectoryItem: {0} ({1})".format(alpha_name, url))
+        add_menu_directory_item(alpha_name, url)
+
+    # Utilities pages
+    path = "plugin://plugin.video.valencecon/?mode=MOVIE_PAGES&library_id={}".format(library.get('id'))
+    add_menu_directory_item(translate_string(30397), path)
+
+    xbmcplugin.endOfDirectory(handle)
+
+
+def show_tvshow_alpha_list(menu_params):
+    """TV shows A-Z: per-letter GET_CONTENT URLs with client-side alpha filtering"""
+    log.debug("== ENTER: showTvShowAlphaList() ==")
+    handle = int(sys.argv[1])
+    xbmcplugin.setContent(handle, 'tvshows')
+
+    libraries = _libraries_for_kind(['shows', 'anime'])
+    if not libraries:
+        xbmcplugin.endOfDirectory(handle)
+        return
+
+    library_id = menu_params.get('library_id')
+    if library_id:
+        libraries = [l for l in libraries if l.get('id') == library_id] or libraries[:1]
+
+    library = libraries[0]
+    params = {
+        'limit': 500,
+        'sort': 'title',
+        'fields': get_default_filters(),
+    }
+    base_path = get_valence_url('/libraries/{}/shows'.format(library.get('id')), params)
+
+    for alpha_name in '#' + string.ascii_uppercase:
+        url = (sys.argv[0] + "?url=" + quote(base_path) +
+               "&mode=GET_CONTENT&media_type=tvshows&alpha=" + alpha_name)
+        log.debug("addMenuDirectoryItem: {0} ({1})".format(alpha_name, url))
+        add_menu_directory_item(alpha_name, url)
+
+    xbmcplugin.endOfDirectory(handle)
+
+
+def show_artist_alpha_list(menu_params):
+    """Music artists A-Z with client-side alpha filtering"""
+    log.debug("== ENTER: showArtistAlphaList() ==")
+    handle = int(sys.argv[1])
+    xbmcplugin.setContent(handle, 'artists')
+
+    params = {
+        'limit': 1000,
+        'fields': get_default_filters(),
+    }
+    base_path = get_valence_url('/music/artists', params)
+
+    for alpha_name in '#' + string.ascii_uppercase:
+        url = (sys.argv[0] + "?url=" + quote(base_path) +
+               "&mode=GET_CONTENT&media_type=MusicArtist&alpha=" + alpha_name)
+        log.debug("addMenuDirectoryItem: {0} ({1})".format(alpha_name, url))
+        add_menu_directory_item(alpha_name, url)
+
+    xbmcplugin.endOfDirectory(handle)
+
+
+def show_genre_list(menu_params):
+    """Genre browsing based on library facets, per-library item routes"""
+    log.debug("== ENTER: showGenreList() ==")
+    handle = int(sys.argv[1])
+
+    kind = menu_params.get("kind") or "movies"
+    library_id = menu_params.get("library_id")
+
+    xbmcplugin.setContent(handle, 'genres')
+
+    kinds = ['movies'] if kind == 'movies' else ['shows', 'anime'] if kind == 'shows' else ['music']
+    libraries = _libraries_for_kind(kinds)
+    if not libraries:
+        xbmcplugin.endOfDirectory(handle)
+        return
+
+    if library_id:
+        libraries = [l for l in libraries if l.get('id') == library_id] or libraries[:1]
+
+    facets = api.get_library_facets()
+    genres = facets.get('genres', []) if facets else []
+
+    params = {
+        'fields': get_default_filters(),
+        'limit': settings.getSetting("show_x_filtered_items"),
+    }
+
+    for genre in sorted(genres):
+        for library in libraries:
+            lib_params = params.copy()
+            lib_params['genres'] = quote(genre)
+            if kind == 'shows':
+                lib_params['type'] = 'episode'
+                path = get_valence_url('/libraries/{}/items'.format(library.get('id')), lib_params)
+                url = (sys.argv[0] + "?url=" + quote(path) +
+                       "&mode=GET_CONTENT&media_type=tvshows")
+            else:
+                path = get_valence_url('/libraries/{}/items'.format(library.get('id')), lib_params)
+                url = sys.argv[0] + "?url=" + quote(path) + "&mode=GET_CONTENT&media_type=movies"
+            title = genre if len(libraries) == 1 else "{} ({})".format(genre, library.get('name') or '')
+            add_menu_directory_item(title, url)
+
+    xbmcplugin.endOfDirectory(handle)
+
+
+def show_movie_pages(menu_params):
+    """Movie pages: chunks of moviePageSize items via offset paging"""
+    log.debug("showMoviePages")
+    handle = int(sys.argv[1])
+    xbmcplugin.setContent(handle, 'movies')
+
+    libraries = _libraries_for_kind(['movies'])
+    if not libraries:
+        xbmcplugin.endOfDirectory(handle)
+        return
+
+    library_id = menu_params.get('library_id')
+    if library_id:
+        libraries = [l for l in libraries if l.get('id') == library_id] or libraries[:1]
+
+    library = libraries[0]
+    lib_id = library.get('id')
+
+    total_url = get_valence_url('/libraries/{}/items'.format(lib_id), {'limit': 1})
+    result = api.get(total_url)
+    if not result:
+        xbmcplugin.endOfDirectory(handle)
+        return
+    total_results = result.get('total', 0)
+    log.debug("showMoviePages total: {0}".format(total_results))
+
+    page_limit = int(settings.getSetting('moviePageSize'))
+    if page_limit == 0:
+        page_limit = 20
+
+    start_index = 0
+    params = {
+        'fields': get_default_filters(),
+        'sort': 'title',
+    }
+    while start_index < total_results:
+        page_upper = min(start_index + page_limit, total_results)
+        page_params = params.copy()
+        page_params['offset'] = start_index
+        page_params['limit'] = page_limit
+        path = get_valence_url('/libraries/{}/items'.format(lib_id), page_params)
+        title = 'Page ({} - {})'.format(start_index + 1, page_upper)
+        url = (sys.argv[0] + "?url=" + quote(path) +
+               "&mode=GET_CONTENT&media_type=movies")
+        add_menu_directory_item(title, url)
+        start_index = start_index + page_limit
+
+    xbmcplugin.endOfDirectory(handle)

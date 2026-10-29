@@ -17,7 +17,7 @@ from six.moves.urllib.parse import unquote
 from .valence import api
 from .lazylogger import LazyLogger
 from .jsonrpc import JsonRpc, get_value
-from .utils import translate_string, load_user_details
+from .utils import translate_string, load_user_details, get_default_filters
 from .kodi_utils import HomeWindow
 from .item_functions import get_art
 

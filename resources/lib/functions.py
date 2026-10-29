@@ -20,7 +20,7 @@ from .utils import (
     translate_string, get_version, load_user_details, get_art_url,
     get_default_filters, translate_path, kodi_version, get_valence_url
 )
-from .kodi_utils import HomeWindow
+from .kodi_utils import HomeWindow, add_menu_directory_item
 from .datamanager import clear_cached_server_data
 from .server_detect import check_server, check_connection_speed
 from .lazylogger import LazyLogger
@@ -37,6 +37,7 @@ from .widgets import (
     get_widget_content, get_widget_content_cast, check_for_new_content
 )
 from .cache_images import CacheArtwork
+from .item_functions import get_art
 from .dir_functions import get_content, process_directory
 from .tracking import timer
 from .skin_cloner import clone_default_skin
@@ -650,16 +651,13 @@ def show_content(params):
 
     item_type = params.get("item_type")
     settings = xbmcaddon.Addon()
-    group_movies = settings.getSetting('group_movies') == "true"
-
-    if item_type and item_type.lower().find("movie") == -1:
-        group_movies = False
+    library_id = params.get("library_id")
 
     # Get all libraries of the appropriate kind
     libraries = api.get_libraries()
     if not libraries:
         return
-    
+
     target_kinds = {
         'Movie': ['movies'],
         'Series': ['shows', 'anime'],
@@ -667,29 +665,50 @@ def show_content(params):
         'MusicTrack': ['music'],
         'Book': ['books'],
     }
-    
+
     kinds = target_kinds.get(item_type, ['movies'])
-    library_ids = [l['id'] for l in libraries if l.get('kind') in kinds]
-    
-    if not library_ids:
+    lib_items = [l for l in libraries if l.get('kind') in kinds]
+
+    if not lib_items:
         return
-    
-    lib_ids = ','.join(library_ids)
-    
+
+    # With per-library API routes, resolve to a single library.
+    # If several, show a library chooser first.
+    if not library_id and len(lib_items) > 1:
+        handle = int(sys.argv[1])
+        xbmcplugin.setContent(handle, 'files')
+        server = settings.getSetting('server_address')
+        for lib in lib_items:
+            art = get_art(item=lib, server=server)
+            url = (sys.argv[0] + "?mode=SHOW_CONTENT&item_type=" + item_type +
+                   "&library_id=" + lib.get('id'))
+            add_menu_directory_item(lib.get('name'), url, art=art)
+        xbmcplugin.endOfDirectory(handle, cacheToDisc=False)
+        return
+
+    if not library_id:
+        library_id = lib_items[0].get('id')
+
+    lib_ids = [library_id]
+
+    if item_type and item_type.lower().find("movie") == -1:
+        group_movies = False
+    else:
+        group_movies = settings.getSetting('group_movies') == "true"
+
     url_params = {
         "limit": 100,
         "fields": get_default_filters(),
-        "libraryIds": lib_ids,
     }
-    
+
     if group_movies:
         url_params['collapseBoxSets'] = 'true'
         url_params['groupIntoCollections'] = 'true'
-    
-    content_url = get_valence_url('/libraries/items', url_params)
 
-    log.debug("showContent Content Url: {0}".format(content_url))
-    get_content(content_url, params)
+    path = get_valence_url('/libraries/{}/items'.format(lib_ids[0]), url_params)
+
+    log.debug("showContent Content Url: {0}".format(path))
+    get_content(path, params)
 
 
 def search_results_person(params):
@@ -698,37 +717,19 @@ def search_results_person(params):
 
     person_id = params.get("person_id")
 
-    url = get_valence_url('/people/{}'.format(person_id), {
-        'fields': get_default_filters(),
-    })
+    # Valence server versions we target have no people endpoint,
+    # so fall back to searching items by the person's name when available
+    person_name = params.get("person_name")
 
-    params["name_format"] = "Episode|episode_name_format"
+    if person_name:
+        params_new = dict(params)
+        params_new["query"] = person_name
+        params_new["item_type"] = "Movie"
+        return search_results(params_new)
 
-    dir_items, detected_type, total_records = process_directory(
-        url, None, params
-    )
-
-    log.debug('search_results_person results: {0}'.format(dir_items))
-    log.debug('search_results_person detect_type: {0}'.format(detected_type))
-
-    if detected_type is not None:
-        content_type = None
-
-        if detected_type == "Movie":
-            content_type = 'movies'
-        elif detected_type == "Episode":
-            content_type = 'episodes'
-        elif detected_type == "Series":
-            content_type = 'tvshows'
-        elif detected_type in ["Music", "Audio", "MusicAlbum", "MusicTrack"]:
-            content_type = 'songs'
-
-        if content_type:
-            xbmcplugin.setContent(handle, content_type)
-
-    if dir_items is not None:
-        xbmcplugin.addDirectoryItems(handle, dir_items)
-
+    xbmcgui.Dialog().ok(
+        translate_string(30135),
+        "Person details are not available on this Valence server version.")
     xbmcplugin.endOfDirectory(handle, cacheToDisc=False)
 
 
@@ -801,26 +802,70 @@ def search_results(params):
         progress.create(translate_string(30112))
         progress.update(0, translate_string(30113))
 
-    # Search using Valence catalogue search
-    search_url = get_valence_url('/admin/catalogue/search', {
-        'q': query,
-        'limit': 16,
-    })
+    # Valence 1.7 has no global search endpoint, so query each library
+    libraries = api.get_libraries() or []
 
-    search_results_data = api.get(search_url)
-    log.debug("Search Result : {0}".format(search_results_data))
-    
-    if search_results_data is None:
+    query_libraries = []
+    for lib in libraries:
+        lib_kind = lib.get('kind')
+        if lib_kind in ['movies', 'shows', 'anime', 'music']:
+            query_libraries.append(lib)
+
+    handle = int(sys.argv[1])
+    content_types = set()
+    all_dir_items = []
+
+    for lib in query_libraries:
+        lib_kind = lib.get('kind')
+        lib_params = {
+            'q': query,
+            'limit': 20,
+            'fields': get_default_filters(),
+        }
+
+        search_params = dict(params)
+        if lib_kind in ['shows', 'anime']:
+            search_url = get_valence_url(
+                '/libraries/{}/shows'.format(lib.get('id')), lib_params)
+        elif lib_kind == 'music':
+            search_url = get_valence_url(
+                '/music/artists', {'q': query, 'limit': 20})
+        else:
+            search_url = get_valence_url(
+                '/libraries/{}/items'.format(lib.get('id')), lib_params)
+
+        lib_dir_items, lib_detected, lib_total = process_directory(
+            search_url, progress, search_params
+        )
+        log.debug("Search in library {0}: {1} results".format(
+            lib.get('name'), len(lib_dir_items or [])))
+
+        if lib_dir_items:
+            all_dir_items.extend(lib_dir_items)
+            if lib_detected:
+                content_types.add(lib_detected)
+
+    if not all_dir_items:
+        if progress is not None:
+            progress.close()
+        xbmcgui.Dialog().ok(translate_string(30246),
+                            translate_string(30305))
         return
 
-    # Set content type
+    # set the dominant content type
+    if 'Movie' in content_types:
+        content_type = 'movies'
+    elif 'Series' in content_types:
+        content_type = 'tvshows'
+    elif 'Episode' in content_types:
+        content_type = 'episodes'
+    elif content_types:
+        content_type = 'video'
+    else:
+        content_type = 'video'
+
     xbmcplugin.setContent(handle, content_type)
-    
-    # Process search results
-    dir_items, detected_type, total_records = process_directory(
-        search_url, progress, params
-    )
-    xbmcplugin.addDirectoryItems(handle, dir_items)
+    xbmcplugin.addDirectoryItems(handle, all_dir_items)
     xbmcplugin.endOfDirectory(handle, cacheToDisc=False)
 
     if progress is not None:

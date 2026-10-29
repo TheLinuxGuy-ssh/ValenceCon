@@ -196,86 +196,6 @@ msgctxt "#30107"
 msgid "Server URL"
 msgstr "Server URL"
 
-msgctxt "#30005"
-msgid "Username"
-msgstr "Username"
-
-msgctxt "#30006"
-msgid "Password"
-msgstr "Password"
-
-msgctxt "#30015"
-msgid "Log timing data"
-msgstr "Log timing data"
-
-msgctxt "#30016"
-msgid "Device display name"
-msgstr "Device display name"
-
-msgctxt "#30017"
-msgid "Show connected clients"
-msgstr "Show connected clients"
-
-msgctxt "#30018"
-msgid "Number of items to show in filtered lists"
-msgstr "Number of items to show in filtered lists"
-
-msgctxt "#30019"
-msgid "Filtered episode name format"
-msgstr "Filtered episode name format"
-
-msgctxt "#30020"
-msgid "Flatten single season"
-msgstr "Flatten single season"
-
-msgctxt "#30021"
-msgid "Show all episodes item"
-msgstr "Show all episodes"
-
-msgctxt "#30022"
-msgid "Advanced"
-msgstr "Advanced"
-
-msgctxt "#30023"
-msgid "Hide unwatched episode details"
-msgstr "Hide unwatched episode details"
-
-msgctxt "#30026"
-msgid "Widget item select action"
-msgstr "Widget item select action"
-
-msgctxt "#30027"
-msgid "Enable debug logging"
-msgstr "Enable debug logging"
-
-msgctxt "#30044"
-msgid "Incorrect Username/Password"
-msgstr "Incorrect Credentials"
-
-msgctxt "#30045"
-msgid "Username not found"
-msgstr "Profile not found"
-
-msgctxt "#30052"
-msgid "Deleting"
-msgstr "Deleting"
-
-msgctxt "#30053"
-msgid "Waiting for server to delete"
-msgstr "Waiting for server to delete"
-
-msgctxt "#30063"
-msgid "N/A"
-msgstr "N/A"
-
-msgctxt "#30091"
-msgid "Confirm delete?"
-msgstr "Confirm delete?"
-
-msgctxt "#30092"
-msgid "Warning: This action will delete the media files from the server."
-msgstr "Warning: This action will delete the media files from the server."
-
 msgctxt "#30110"
 msgid "Interface"
 msgstr "Interface"
@@ -622,7 +542,7 @@ msgstr "Refresh Cached Images"
 
 msgctxt "#30282"
 msgid "No Jellyfin servers detected on your local network."
-msgstr "No Valence servers detected on your local network."
+msgstr "Your Valence server is not configured yet."
 
 msgctxt "#30283"
 msgid "Play Next Episode?"
@@ -884,10 +804,6 @@ msgctxt "#30352"
 msgid "Music - Frequently Played"
 msgstr "Music - Frequently Played"
 
-msgctxt "#30321"
-msgid " - Album Artists"
-msgstr "- Album Artists"
-
 msgctxt "#30353"
 msgid " - Frequently Played"
 msgstr "- Frequently Played"
@@ -1034,7 +950,7 @@ msgstr "Server details"
 
 msgctxt "#30389"
 msgid "User details"
-msgstr "Profile details"
+msgstr "Could not validate the API key with the Valence server."
 
 msgctxt "#30390"
 msgid "Protocol"
@@ -1108,10 +1024,6 @@ msgctxt "#30408"
 msgid "Custom Widgets"
 msgstr "Custom Widgets"
 
-msgctxt "#30408"
-msgid "Add-on Actions"
-msgstr "Add-on Actions"
-
 msgctxt "#30410"
 msgid " - Collections"
 msgstr "- Collections"
@@ -1127,10 +1039,6 @@ msgstr "- Decades"
 msgctxt "#30413"
 msgid " - Tags"
 msgstr "- Tags"
-
-msgctxt "#30413"
-msgid " - Favorites"
-msgstr "- Favorites"
 
 msgctxt "#30415"
 msgid " - Favorite Collections"
@@ -1159,10 +1067,6 @@ msgstr "Audio max channels"
 msgctxt "#30421"
 msgid "Views"
 msgstr "Views"
-
-msgctxt "#30422"
-msgid "Sorting"
-msgstr "Sort Methods"
 
 msgctxt "#30422"
 msgid "Sorting"
