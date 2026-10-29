@@ -193,8 +193,8 @@ msgid "Current Profile"
 msgstr "Current Profile"
 
 msgctxt "#30107"
-msgid "Save Credentials"
-msgstr "Save Credentials"
+msgid "Server URL"
+msgstr "Server URL"
 
 msgctxt "#30005"
 msgid "Username"
@@ -989,8 +989,8 @@ msgid "Sending request"
 msgstr "Sending request"
 
 msgctxt "#30378"
-msgid "Persist user details"
-msgstr "Persist profile details"
+msgid "Save Credentials"
+msgstr "Save Credentials"
 
 msgctxt "#30379"
 msgid "External subtitle prompt"
